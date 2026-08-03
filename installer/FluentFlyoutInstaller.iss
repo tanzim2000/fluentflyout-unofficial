@@ -4,26 +4,21 @@
 ; Flow:
 ;   1. Ask Windows for admin rights (PrivilegesRequired=admin below)
 ;   2. Check whether this machine is x64 or ARM64
-;   3. Read last_built_version.txt from the repo to find the current
-;      version, then download the matching .msix + signing cert - with a
-;      live byte-progress bar while the .msix downloads
+;   3. Look up the current version, then download the matching .msix +
+;      signing cert - using Inno's own built-in CreateDownloadPage, which
+;      handles the progress bar, retries, and error reporting natively.
+;      This is the same pattern used in Inno's own official example
+;      script (CodeDownloadFiles.iss).
 ;   4. Install the cert into Trusted People (see note below on why not
-;      Trusted Root)
-;   5. Trigger the .msix install, then resolve its Start Menu entry so a
-;      "Launch FluentFlyout" checkbox can appear on the Finish page
+;      Trusted Root) - shown in a visible PowerShell window
+;   5. Trigger the .msix install (also visible), then resolve its Start
+;      Menu entry so a "Launch FluentFlyout" checkbox can appear on the
+;      Finish page
 ;   6. Clean up the downloaded files
 ;
 ; This installer never goes out of date and never needs rebuilding when a
 ; new FluentFlyout version comes out - it always reads the current
 ; version straight from the repo at install time.
-;
-; The download and size-check stages run hidden (Inno's own progress bar
-; is the visible element there). The certificate-trust and install steps
-; run with a visible PowerShell window - deliberately, since silent
-; background execution that modifies certificate trust is exactly the
-; kind of behavior that can trip antivirus heuristics on an unsigned
-; binary; showing those two steps trades a little polish for honesty
-; about what's happening on screen.
 
 [Setup]
 AppName=FluentFlyout (Unofficial Build) Installer
@@ -47,9 +42,7 @@ Filename: "{sys}\explorer.exe"; Parameters: "shell:appsFolder\{code:GetAppLaunch
 
 [Code]
 var
-	ProgressPage: TOutputProgressWizardPage;
-	DownloadLabel: TNewStaticText;
-	DownloadBar: TNewProgressBar;
+	DownloadPage: TDownloadWizardPage;
 	AppLaunchID: String;
 
 function GetAppLaunchID(Param: String): String;
@@ -62,105 +55,32 @@ begin
 	Result := AppLaunchID <> '';
 end;
 
-// Formats a byte count as a human-readable MB figure, e.g. "12.4 MB"
-function FormatMB(const Bytes: Int64): String;
-begin
-	Result := Format('%.1f MB', [Bytes / 1048576]);
-end;
-
 procedure InitializeWizard();
 begin
-	ProgressPage := CreateOutputProgressPage('Installing FluentFlyout',
-		'Please wait while the installer downloads and sets up FluentFlyout.');
-
-	// A second progress bar, placed just below the main one on the same
-	// page, used specifically to show live byte progress while the
-	// .msix downloads. Hidden the rest of the time.
-	DownloadLabel := TNewStaticText.Create(ProgressPage);
-	DownloadLabel.Parent := ProgressPage.Surface;
-	DownloadLabel.Left := ProgressPage.ProgressBar.Left;
-	DownloadLabel.Top := ProgressPage.ProgressBar.Top + ProgressPage.ProgressBar.Height + 12;
-	DownloadLabel.Width := ProgressPage.ProgressBar.Width;
-	DownloadLabel.Caption := '';
-	DownloadLabel.Visible := False;
-
-	DownloadBar := TNewProgressBar.Create(ProgressPage);
-	DownloadBar.Parent := ProgressPage.Surface;
-	DownloadBar.Left := ProgressPage.ProgressBar.Left;
-	DownloadBar.Top := DownloadLabel.Top + DownloadLabel.Height + 4;
-	DownloadBar.Width := ProgressPage.ProgressBar.Width;
-	DownloadBar.Height := ProgressPage.ProgressBar.Height;
-	DownloadBar.Min := 0;
-	DownloadBar.Max := 100;
-	DownloadBar.Position := 0;
-	DownloadBar.Visible := False;
+	DownloadPage := CreateDownloadPage('Downloading FluentFlyout',
+		'Please wait while the required files are downloaded.', nil);
 end;
 
 // Writes a PowerShell script to a temp file and runs it. ShowCmd controls
-// window visibility (SW_HIDE or SW_SHOW); Wait='true' blocks until it
-// finishes, Wait='false' starts it and returns immediately so we can poll
-// progress meanwhile.
-procedure RunScript(const ScriptContent, ScriptName: String; ShowCmd: Integer; Wait: Boolean);
+// window visibility (SW_HIDE or SW_SHOW).
+procedure RunScript(const ScriptContent, ScriptName: String; ShowCmd: Integer);
 var
 	ScriptPath: String;
 	ResultCode: Integer;
 begin
 	ScriptPath := ExpandConstant('{tmp}\') + ScriptName;
 	SaveStringToFile(ScriptPath, ScriptContent, False);
-	if Wait then
-		Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
-			'', ShowCmd, ewWaitUntilTerminated, ResultCode)
-	else
-		Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
-			'', ShowCmd, ewNoWait, ResultCode);
-end;
-
-// Polls the .msix file's size on disk while it downloads in the
-// background, updating the second progress bar, until a "done" marker
-// file appears. If we couldn't determine the expected size up front,
-// falls back to just showing bytes downloaded so far.
-procedure WatchDownloadProgress(const FilePath, DoneMarker: String; ExpectedSize: Int64);
-var
-	CurrentSize: Int64;
-	Percent: Integer;
-begin
-	DownloadLabel.Visible := True;
-	DownloadBar.Visible := True;
-	while not FileExists(DoneMarker) do
-	begin
-		if FileExists(FilePath) and FileSize64(FilePath, CurrentSize) then
-		begin
-			if ExpectedSize > 0 then
-			begin
-				Percent := (CurrentSize * 100) div ExpectedSize;
-				if Percent > 100 then
-					Percent := 100;
-				DownloadBar.Position := Percent;
-				DownloadLabel.Caption := FormatMB(CurrentSize) + ' / ' + FormatMB(ExpectedSize);
-			end
-			else
-			begin
-				DownloadLabel.Caption := FormatMB(CurrentSize) + ' downloaded';
-			end;
-		end;
-		// Force a repaint so the change actually reaches the screen this
-		// cycle, rather than assuming Sleep() alone keeps the UI painting.
-		DownloadBar.Repaint;
-		DownloadLabel.Repaint;
-		Sleep(200);
-	end;
-	DownloadBar.Position := 100;
-	DownloadLabel.Visible := False;
-	DownloadBar.Visible := False;
+	Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+		'', ShowCmd, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-	Arch, TempDir: String;
-	SizeScript, DownloadScript, TrustScript, InstallScript, CleanupScript: String;
-	AppIdPath, SizePath, MsixPath, DoneMarkerPath: String;
-	SizeAnsi, AppIdAnsi: AnsiString;
-	ExpectedSize: Int64;
+	Arch, TempDir, Version: String;
+	VersionAnsi, AppIdAnsi: AnsiString;
+	CertUrl, MsixUrl: String;
+	TrustScript, InstallScript: String;
+	AppIdPath, VersionPath: String;
 begin
 	if CurStep = ssPostInstall then
 	begin
@@ -172,90 +92,84 @@ begin
 
 		TempDir := ExpandConstant('{tmp}');
 		AppIdPath := TempDir + '\appid.txt';
-		SizePath := TempDir + '\size.txt';
-		MsixPath := TempDir + '\app.msix';
-		DoneMarkerPath := TempDir + '\download.done';
+		VersionPath := TempDir + '\last_built_version.txt';
 
-		ProgressPage.Show;
+		// Step 3a: find the current version
 		try
-			// Step 3a: find out how big the .msix actually is, so the
-			// download progress bar below has a real total to work against
-			ProgressPage.SetText('Preparing download...', '');
-			ProgressPage.SetProgress(1, 4);
-			SizeScript :=
-				'$ErrorActionPreference = ''Stop''' + #13#10 +
-				'$version = (Invoke-WebRequest -Uri ''https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/refs/heads/main/last_built_version.txt'' -UseBasicParsing).Content.Trim()' + #13#10 +
-				'$msixUrl = ''https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/'' + $version + ''/FluentFlyout_'' + $version + ''_' + Arch + '.msix''' + #13#10 +
-				'try {' + #13#10 +
-				'  $resp = Invoke-WebRequest -Uri $msixUrl -Method Head -UseBasicParsing -MaximumRedirection 5' + #13#10 +
-				'  Set-Content -Path ''' + SizePath + ''' -Value $resp.Headers[''Content-Length''] -NoNewline' + #13#10 +
-				'} catch { Set-Content -Path ''' + SizePath + ''' -Value ''0'' -NoNewline }';
-			RunScript(SizeScript, 'size.ps1', SW_HIDE, True);
-
-			ExpectedSize := 0;
-			if LoadStringFromFile(SizePath, SizeAnsi) then
-				ExpectedSize := StrToInt64Def(Trim(String(SizeAnsi)), 0);
-
-			// Step 3b: start the real download in the background, then
-			// watch its progress until the "done" marker appears
-			ProgressPage.SetText('Downloading files...', '');
-			ProgressPage.SetProgress(2, 4);
-			DownloadScript :=
-				'$ErrorActionPreference = ''Stop''' + #13#10 +
-				'$version = (Invoke-WebRequest -Uri ''https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/refs/heads/main/last_built_version.txt'' -UseBasicParsing).Content.Trim()' + #13#10 +
-				'$certUrl = ''https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/'' + $version + ''/signing.cer''' + #13#10 +
-				'$msixUrl = ''https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/'' + $version + ''/FluentFlyout_'' + $version + ''_' + Arch + '.msix''' + #13#10 +
-				'Invoke-WebRequest -Uri $certUrl -OutFile ''' + TempDir + '\signing.cer''' + #13#10 +
-				'Invoke-WebRequest -Uri $msixUrl -OutFile ''' + MsixPath + '''' + #13#10 +
-				'New-Item -Path ''' + DoneMarkerPath + ''' -ItemType File | Out-Null';
-			RunScript(DownloadScript, 'download.ps1', SW_HIDE, False);
-			WatchDownloadProgress(MsixPath, DoneMarkerPath, ExpectedSize);
-
-			// Step 4: trust the certificate. This goes into Trusted People,
-			// not Trusted Root - confirmed by testing that self-signed leaf
-			// certs (which is what this project's signing cert is) are only
-			// honored by Windows' AppX validator from Trusted People, even
-			// when the same cert sitting in Trusted Root gets rejected.
-			ProgressPage.SetText('Trusting certificate...', '');
-			ProgressPage.SetProgress(3, 4);
-			TrustScript :=
-				'$ErrorActionPreference = ''Stop''' + #13#10 +
-				'Import-Certificate -FilePath ''' + TempDir + '\signing.cer'' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null';
-			RunScript(TrustScript, 'trust.ps1', SW_SHOW, True);
-
-			// Step 5: install, then resolve the Start Menu AppID so the
-			// "Launch FluentFlyout" checkbox on the Finish page works. MSIX
-			// apps don't have a fixed .exe path to launch directly, so we
-			// build shell:appsFolder\<PackageFamilyName>!<AppId> from the
-			// installed package's own manifest - not from Get-StartApps,
-			// since that reads Windows' Start Menu index, which can lag
-			// behind Add-AppxPackage actually finishing.
-			ProgressPage.SetText('Installing FluentFlyout...', '');
-			ProgressPage.SetProgress(4, 4);
-			InstallScript :=
-				'$ErrorActionPreference = ''Stop''' + #13#10 +
-				'Add-AppxPackage -Path ''' + MsixPath + '''' + #13#10 +
-				'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
-				'if ($pkg) {' + #13#10 +
-				'  $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName' + #13#10 +
-				'  $appId = $manifest.Package.Applications.Application.Id' + #13#10 +
-				'  if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value ($pkg.PackageFamilyName + ''!'' + $appId) -NoNewline }' + #13#10 +
-				'}';
-			RunScript(InstallScript, 'install.ps1', SW_SHOW, True);
-
-			if LoadStringFromFile(AppIdPath, AppIdAnsi) then
-				AppLaunchID := String(AppIdAnsi)
-			else
-				AppLaunchID := '';
-
-			// Step 6: clean up
-			ProgressPage.SetText('Cleaning up...', '');
-			CleanupScript :=
-				'Remove-Item ''' + TempDir + '\signing.cer'', ''' + MsixPath + ''', ''' +
-				AppIdPath + ''', ''' + SizePath + ''', ''' + DoneMarkerPath + ''' -Force -ErrorAction SilentlyContinue';
-			RunScript(CleanupScript, 'cleanup.ps1', SW_HIDE, True);
-		finally
-			ProgressPage.Hide;
+			DownloadTemporaryFile('https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/refs/heads/main/last_built_version.txt',
+				'last_built_version.txt', '', nil);
+		except
+			MsgBox('Could not check the current FluentFlyout version. Check your internet connection and try again.' +
+				#13#10 + GetExceptionMessage, mbCriticalError, MB_OK);
+			Exit;
 		end;
+		if not LoadStringFromFile(VersionPath, VersionAnsi) then
+		begin
+			MsgBox('Could not read the downloaded version file.', mbCriticalError, MB_OK);
+			Exit;
+		end;
+		Version := Trim(String(VersionAnsi));
+
+		CertUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/signing.cer';
+		MsixUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/FluentFlyout_' + Version + '_' + Arch + '.msix';
+
+		// Step 3b: download the cert + matching .msix, with Inno's own
+		// native download progress page
+		DownloadPage.Clear;
+		DownloadPage.Add(CertUrl, 'signing.cer', '');
+		DownloadPage.Add(MsixUrl, 'app.msix', '');
+		DownloadPage.Show;
+		try
+			try
+				DownloadPage.Download;
+			except
+				if DownloadPage.AbortedByUser then
+					MsgBox('Download cancelled.', mbInformation, MB_OK)
+				else
+					MsgBox('Download failed: ' + GetExceptionMessage, mbCriticalError, MB_OK);
+				Exit;
+			end;
+		finally
+			DownloadPage.Hide;
+		end;
+
+		// Step 4: trust the certificate. This goes into Trusted People,
+		// not Trusted Root - confirmed by testing that self-signed leaf
+		// certs (which is what this project's signing cert is) are only
+		// honored by Windows' AppX validator from Trusted People, even
+		// when the same cert sitting in Trusted Root gets rejected.
+		TrustScript :=
+			'$ErrorActionPreference = ''Stop''' + #13#10 +
+			'Import-Certificate -FilePath ''' + TempDir + '\signing.cer'' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null';
+		RunScript(TrustScript, 'trust.ps1', SW_SHOW);
+
+		// Step 5: install, then resolve the launch AppID so the "Launch
+		// FluentFlyout" checkbox on the Finish page works. MSIX apps
+		// don't have a fixed .exe path to launch directly, so we build
+		// shell:appsFolder\<PackageFamilyName>!<AppId> from the installed
+		// package's own manifest - not from Get-StartApps, since that
+		// reads Windows' Start Menu index, which can lag behind
+		// Add-AppxPackage actually finishing.
+		InstallScript :=
+			'$ErrorActionPreference = ''Stop''' + #13#10 +
+			'Add-AppxPackage -Path ''' + TempDir + '\app.msix''' + #13#10 +
+			'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
+			'if ($pkg) {' + #13#10 +
+			'  $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName' + #13#10 +
+			'  $appId = $manifest.Package.Applications.Application.Id' + #13#10 +
+			'  if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value ($pkg.PackageFamilyName + ''!'' + $appId) -NoNewline }' + #13#10 +
+			'}';
+		RunScript(InstallScript, 'install.ps1', SW_SHOW);
+
+		if LoadStringFromFile(AppIdPath, AppIdAnsi) then
+			AppLaunchID := String(AppIdAnsi)
+		else
+			AppLaunchID := '';
+
+		// Step 6: clean up. Inno automatically wipes {tmp} (where all the
+		// downloaded files live) once Setup finishes, so this just
+		// removes the couple of files we wrote directly ourselves.
+		DeleteFile(AppIdPath);
+		DeleteFile(VersionPath);
 	end;
 end;
