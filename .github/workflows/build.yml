@@ -3,7 +3,12 @@ name: Build & Publish FluentFlyout Unofficial
 on:
   schedule:
     - cron: '0 */6 * * *'   # every 6 hours
-  workflow_dispatch:          # allows manual "Run workflow" button too
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Rebuild even if this version was already built (for testing)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,8 +27,8 @@ jobs:
         run: |
           LATEST=$(curl -s https://api.github.com/repos/unchihugo/FluentFlyout/releases/latest | jq -r .tag_name)
           LAST_BUILT=$(cat last_built_version.txt 2>/dev/null || echo "none")
-          echo "Upstream latest: $LATEST | Last built: $LAST_BUILT"
-          if [ "$LATEST" != "$LAST_BUILT" ] && [ "$LATEST" != "null" ]; then
+          echo "Upstream latest: $LATEST | Last built: $LAST_BUILT | Force rebuild: ${{ github.event.inputs.force_rebuild }}"
+          if { [ "$LATEST" != "$LAST_BUILT" ] || [ "${{ github.event.inputs.force_rebuild }}" == "true" ]; } && [ "$LATEST" != "null" ]; then
             echo "new_version=$LATEST" >> "$GITHUB_OUTPUT"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
