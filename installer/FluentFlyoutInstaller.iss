@@ -57,7 +57,7 @@ begin
 			'Invoke-WebRequest -Uri $certUrl -OutFile ''' + TempDir + '\signing.cer''; ' +
 			'Invoke-WebRequest -Uri $msixUrl -OutFile ''' + TempDir + '\app.msix''; ' +
 			'Write-Host ''Trusting certificate...''; ' +
-			'Import-Certificate -FilePath ''' + TempDir + '\signing.cer'' -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; ' +
+			'Import-Certificate -FilePath ''' + TempDir + '\signing.cer'' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null; ' +
 			'Write-Host ''Installing app...''; ' +
 			'Add-AppxPackage -Path ''' + TempDir + '\app.msix''; ' +
 			'Write-Host ''Cleaning up...''; ' +
