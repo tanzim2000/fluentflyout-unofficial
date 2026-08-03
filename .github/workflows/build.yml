@@ -6,9 +6,21 @@ on:
   workflow_dispatch:
     inputs:
       force_rebuild:
-        description: 'Rebuild even if this version was already built (for testing)'
+        description: 'Rebuild even if this version was already built?'
         type: boolean
         default: false
+      export_nupkg:
+        description: 'Export .nupkg as a downloadable file?'
+        type: boolean
+        default: false
+      publish_chocolatey:
+        description: 'Publish to Chocolatey?'
+        type: boolean
+        default: true
+      mark_as_untested:
+        description: 'Tag the Chocolatey package as "-untested" (SemVer prerelease)?'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -20,6 +32,9 @@ jobs:
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
       should_build: ${{ steps.check.outputs.should_build }}
+      export_nupkg: ${{ steps.options.outputs.export_nupkg }}
+      publish_choco: ${{ steps.options.outputs.publish_choco }}
+      mark_untested: ${{ steps.options.outputs.mark_untested }}
     steps:
       - uses: actions/checkout@v5
 
@@ -33,6 +48,20 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Resolves the checkbox options for both manual runs (uses whatever was checked)
+      # and scheduled/automatic runs (no inputs exist, so the defaults below apply).
+      - id: options
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "export_nupkg=${{ github.event.inputs.export_nupkg }}" >> "$GITHUB_OUTPUT"
+            echo "publish_choco=${{ github.event.inputs.publish_chocolatey }}" >> "$GITHUB_OUTPUT"
+            echo "mark_untested=${{ github.event.inputs.mark_as_untested }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "export_nupkg=false" >> "$GITHUB_OUTPUT"
+            echo "publish_choco=true" >> "$GITHUB_OUTPUT"
+            echo "mark_untested=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -171,6 +200,16 @@ jobs:
             See build-provenance.json for the exact source commit and build run used.
           files: output/*
 
+      - name: Notify (push notification via ntfy.sh)
+        if: ${{ secrets.NTFY_TOPIC != '' }}
+        run: |
+          curl -s \
+            -H "Title: FluentFlyout Unofficial ${{ env.NEW_VERSION }} published" \
+            -H "Priority: default" \
+            -H "Tags: package" \
+            -d "New GitHub Release for ${{ env.NEW_VERSION }} is live. Go test it: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.NEW_VERSION }}" \
+            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
+
       - name: Update version tracker
         run: |
           echo "${{ env.NEW_VERSION }}" > last_built_version.txt
@@ -213,14 +252,27 @@ jobs:
       - name: Prepare Chocolatey package
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
-          (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $ver | Set-Content chocolatey\fluentflyout-unofficial.nuspec
+          $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
+          $pkgVer = if ($markUntested -eq 'true') { "$ver-untested" } else { $ver }
+          echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
+          (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer | Set-Content chocolatey\fluentflyout-unofficial.nuspec
           (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
             -replace '__X64_SHA256__', "${{ steps.sums.outputs.x64_hash }}" `
             -replace '__ARM64_SHA256__', "${{ steps.sums.outputs.arm_hash }}" `
             | Set-Content chocolatey\tools\chocolateyinstall.ps1
 
-      - name: Pack and push to Chocolatey
+      - name: Pack Chocolatey package (not pushed yet — see below)
         run: |
           choco pack chocolatey\fluentflyout-unofficial.nuspec --outputdirectory chocolatey
-          $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
-          choco push "chocolatey\fluentflyout-unofficial.$ver.nupkg" --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCO_API_KEY }}"
+
+      - name: Upload .nupkg for local testing
+        if: needs.check-release.outputs.export_nupkg == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: chocolatey-package
+          path: chocolatey\*.nupkg
+
+      - name: Push to Chocolatey
+        if: needs.check-release.outputs.publish_choco == 'true'
+        run: |
+          choco push "chocolatey\fluentflyout-unofficial.$env:PKG_VER.nupkg" --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCO_API_KEY }}"
