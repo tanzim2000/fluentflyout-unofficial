@@ -2,8 +2,8 @@
 
 > **Unofficial**, automated, community-maintained builds of [FluentFlyout](https://github.com/unchihugo/FluentFlyout) — rebuilt directly from upstream source on every release and republished here and via Chocolatey.
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial-builds/build.yml?branch=main)](../../actions)
-[![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial-builds)](../../releases/latest)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/build.yml?branch=main)](../../actions)
+[![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial)](../../releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Chocolatey](https://img.shields.io/chocolatey/v/fluentflyout-unofficial)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
 
@@ -33,8 +33,8 @@ This repo closes that gap with a simple pipeline:
 
 ```mermaid
 flowchart LR
-    A["🔍 Watcher<br/>Polls upstream releases<br/>every 6 hours"] --> B["🛠️ Builder<br/>Compiles from source<br/>on windows-latest<br/>(x64 + ARM64)"]
-    B --> C["🔏 Signer<br/>Signs with our own<br/>self-signed cert"]
+    A["🔍 Watcher<br/>Polls upstream releases<br/>every 6 hours"] --> B["🛠️ Builder<br/>Compiles from source<br/>on windows-latest<br/>(x64 + ARM64, separately)"]
+    B --> C["🔏 Signer<br/>Signs each .msix<br/>with our own cert"]
     C --> D["📦 Publisher<br/>GitHub Release +<br/>Chocolatey package"]
 ```
 
@@ -55,13 +55,17 @@ Future updates: `choco upgrade fluentflyout-unofficial` (or let your regular `ch
 ### Option 2 — GitHub Release (manual)
 
 1. Go to the [Releases page](../../releases/latest).
-2. Download **both** files:
-   - `FluentFlyout_<version>_x64.cer`
-   - `FluentFlyout_<version>_x64.msixbundle`
-3. Right-click the `.cer` file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted Root Certification Authorities** → **Finish**.
-4. Double-click the `.msixbundle` → the Windows App Installer will open → **Install**.
+2. Figure out which CPU your PC has:
+   - **Most PCs and laptops** → **x64**
+   - **Surface Pro X, Snapdragon-based "Copilot+ PC" laptops** → **ARM64**
+   - Not sure? Open **Settings → System → About** and check "System type."
+3. Download **both**:
+   - `signing.cer`
+   - `FluentFlyout_<version>_x64.msix` **or** `FluentFlyout_<version>_ARM64.msix` (whichever matches your CPU)
+4. Right-click the `.cer` file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted Root Certification Authorities** → **Finish**.
+5. Double-click the `.msix` file → the Windows App Installer will open → **Install**.
 
-> **ARM64 users** (Surface Pro X, Snapdragon-based laptops, etc.): no separate download needed. Each release's `.msixbundle` contains both x64 and ARM64 builds — Windows automatically installs the right one for your device.
+> **Note:** these builds are lightweight (framework-dependent), meaning Windows may prompt you to install the **.NET Desktop Runtime** the first time you launch the app if it isn't already on your system. This is a normal, small, one-time Microsoft download — not something this project manages.
 
 ### Verifying what you're installing
 
@@ -78,9 +82,9 @@ We encourage you to check both rather than blindly trusting any binary, includin
 | Stage | Trigger | What happens |
 |---|---|---|
 | **Watch** | Cron, every 6 hours | Polls the upstream GitHub API for the latest release tag; compares against the last version this repo has built. |
-| **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds the MSIX package in Release configuration for **both x64 and ARM64**, bundled into a single `.msixbundle` via `msbuild`. |
-| **Sign** | After successful build | Signs the `.msixbundle` with this project's own self-signed certificate (see below on trust). |
-| **Publish** | After signing | Creates a GitHub Release here with the binary + cert + checksums, then packs and pushes an updated Chocolatey package. |
+| **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds **separate, lightweight** MSIX packages for x64 and ARM64 (framework-dependent, English-only resources — no bundled .NET runtime or unused translation files). |
+| **Sign** | After successful build | Signs **each architecture's `.msix` file individually** with this project's own self-signed certificate (see below on trust) — kept separate rather than combined, so an issue with one architecture never affects the other. |
+| **Publish** | After signing | Creates a GitHub Release here with both `.msix` files + cert + checksums, then packs and pushes an updated Chocolatey package. |
 
 Full workflow source: [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
@@ -122,6 +126,12 @@ Issues and PRs welcome — especially for:
 - Build pipeline fixes if upstream's project structure changes
 - Testing on real ARM64 hardware (the build is automated, but real-device testing helps catch issues emulation might miss)
 - Chocolatey package review/approval help
+
+---
+
+## Acknowledgments
+
+This repository's automation pipeline (workflow design, debugging, and documentation) was built with the assistance of [Claude](https://claude.com), Anthropic's AI assistant. All actual code execution, testing, and decisions were reviewed and approved by the repo maintainer — Claude doesn't have direct access to this repository or its infrastructure.
 
 ---
 
