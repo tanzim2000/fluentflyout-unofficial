@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $packageName = 'fluentflyout-unofficial'
-$version     = $env:ChocolateyPackageVersion
+$rawVersion  = $env:ChocolateyPackageVersion
+$version     = $rawVersion -replace '-untested$', ''   # GitHub release tags never have this suffix
 $repoBase    = "https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/v$version"
 
 # Detect architecture
