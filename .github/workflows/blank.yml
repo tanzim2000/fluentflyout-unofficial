@@ -1,0 +1,62 @@
+name: Build Installer Only
+
+# Manual trigger only - this rebuilds just FluentFlyoutInstaller.exe and
+# attaches it to the existing GitHub Release for the current version. It
+# assumes the .msix files and signing.cer are already published there by
+# the main "Build & Publish" workflow - it does NOT build the app itself.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    name: Building Installer (standalone)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Determine current version
+        id: version
+        run: |
+          $version = (Get-Content last_built_version.txt -Raw).Trim()
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Current version: $version"
+
+      - name: Verify the release and its .msix files already exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $assetNames = gh release view $version --json assets --jq ".assets[].name" | Out-String
+          $required = @(
+            "FluentFlyout_${version}_x64.msix",
+            "FluentFlyout_${version}_ARM64.msix",
+            "signing.cer"
+          )
+          $missing = @()
+          foreach ($file in $required) {
+            if ($assetNames -notmatch [regex]::Escape($file)) {
+              $missing += $file
+            }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Error "Release '$version' is missing required asset(s): $($missing -join ', '). Run the full build pipeline first - this workflow only builds the installer, not the app itself."
+            exit 1
+          }
+          Write-Host "All required release assets found for $version - proceeding."
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Compile FluentFlyoutInstaller.exe
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\FluentFlyoutInstaller.iss
+
+      - name: Upload installer to the existing release (replacing if present)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          gh release upload $version installer\Output\FluentFlyout_Installer.exe --clobber
