@@ -179,6 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     steps:
       - uses: actions/checkout@v5
 
@@ -201,14 +202,15 @@ jobs:
           files: output/*
 
       - name: Notify (push notification via ntfy.sh)
-        if: ${{ secrets.NTFY_TOPIC != '' }}
+        if: env.NTFY_TOPIC != ''
         run: |
           curl -s \
             -H "Title: FluentFlyout Unofficial ${{ env.NEW_VERSION }} published" \
             -H "Priority: default" \
             -H "Tags: package" \
             -d "New GitHub Release for ${{ env.NEW_VERSION }} is live. Go test it: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.NEW_VERSION }}" \
-            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
+            "https://ntfy.sh/$NTFY_TOPIC"
+
 
       - name: Update version tracker
         run: |
