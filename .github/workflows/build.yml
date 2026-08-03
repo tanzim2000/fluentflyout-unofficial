@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   check-release:
+    name: Checking For New Release
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
@@ -30,6 +31,7 @@ jobs:
           fi
 
   build:
+    name: Building ${{ matrix.platform }} Package
     needs: check-release
     if: needs.check-release.outputs.should_build == 'true'
     runs-on: windows-latest
@@ -45,6 +47,12 @@ jobs:
           repository: unchihugo/FluentFlyout
           ref: ${{ env.NEW_VERSION }}
           path: upstream
+
+      - name: Patch package identity to match our signing certificate
+        run: |
+          $manifest = "upstream\FluentFlyoutMSIX\Package.appxmanifest"
+          (Get-Content $manifest -Raw) -replace 'Publisher="[^"]*"', 'Publisher="CN=tanzim2000, O=FluentFlyout Unofficial Builds"' | Set-Content $manifest
+          Select-String -Path $manifest -Pattern 'Publisher='
 
       - uses: microsoft/setup-msbuild@v3
       - uses: nuget/setup-nuget@v3
@@ -69,18 +77,20 @@ jobs:
           name: package-${{ matrix.platform }}
           path: output\${{ matrix.platform }}\**\*.msix
 
-  bundle-sign-publish:
+  bundle-and-sign:
+    name: Bundling & Signing
     needs: [check-release, build]
     runs-on: windows-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
     steps:
-      - name: Checkout this repo (for cert + state file)
+      - name: Checkout this repo (for cert)
         uses: actions/checkout@v5
         with:
           path: self
 
-      - uses: actions/download-artifact@v7
+      - name: Download built packages
+        uses: actions/download-artifact@v7
         with:
           pattern: package-*
           path: packages
@@ -126,6 +136,27 @@ jobs:
           } | ConvertTo-Json | Out-File output\build-provenance.json -Encoding utf8
           Copy-Item self\signing.cer output\signing.cer
 
+      - name: Upload signed release assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: signed-release
+          path: output\*
+
+  publish:
+    name: Publishing Release
+    needs: [check-release, bundle-and-sign]
+    runs-on: ubuntu-latest
+    env:
+      NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download signed release assets
+        uses: actions/download-artifact@v7
+        with:
+          name: signed-release
+          path: output
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -140,8 +171,7 @@ jobs:
 
       - name: Update version tracker
         run: |
-          echo "${{ env.NEW_VERSION }}" > self\last_built_version.txt
-          cd self
+          echo "${{ env.NEW_VERSION }}" > last_built_version.txt
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add last_built_version.txt
