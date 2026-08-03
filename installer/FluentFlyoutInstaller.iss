@@ -143,6 +143,10 @@ begin
 				DownloadLabel.Caption := FormatMB(CurrentSize) + ' downloaded';
 			end;
 		end;
+		// Force a repaint so the change actually reaches the screen this
+		// cycle, rather than assuming Sleep() alone keeps the UI painting.
+		DownloadBar.Repaint;
+		DownloadLabel.Repaint;
 		Sleep(200);
 	end;
 	DownloadBar.Position := 100;
@@ -222,14 +226,21 @@ begin
 			// Step 5: install, then resolve the Start Menu AppID so the
 			// "Launch FluentFlyout" checkbox on the Finish page works. MSIX
 			// apps don't have a fixed .exe path to launch directly, so we
-			// look up their shell:appsFolder identity via Get-StartApps.
+			// build shell:appsFolder\<PackageFamilyName>!<AppId> from the
+			// installed package's own manifest - not from Get-StartApps,
+			// since that reads Windows' Start Menu index, which can lag
+			// behind Add-AppxPackage actually finishing.
 			ProgressPage.SetText('Installing FluentFlyout...', '');
 			ProgressPage.SetProgress(4, 4);
 			InstallScript :=
 				'$ErrorActionPreference = ''Stop''' + #13#10 +
 				'Add-AppxPackage -Path ''' + MsixPath + '''' + #13#10 +
-				'$appId = Get-StartApps | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1 -ExpandProperty AppID' + #13#10 +
-				'if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value $appId -NoNewline }';
+				'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
+				'if ($pkg) {' + #13#10 +
+				'  $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName' + #13#10 +
+				'  $appId = $manifest.Package.Applications.Application.Id' + #13#10 +
+				'  if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value ($pkg.PackageFamilyName + ''!'' + $appId) -NoNewline }' + #13#10 +
+				'}';
 			RunScript(InstallScript, 'install.ps1', SW_SHOW, True);
 
 			if LoadStringFromFile(AppIdPath, AppIdAnsi) then
