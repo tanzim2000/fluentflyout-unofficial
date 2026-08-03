@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>fluentflyout-unofficial</id>
+    <version>__VERSION__</version>
+    <title>FluentFlyout (Unofficial Build)</title>
+    <authors>unchihugo (original author), tanzim2000 (unofficial packaging)</authors>
+    <owners>tanzim2000</owners>
+    <projectUrl>https://github.com/tanzim2000/fluentflyout-unofficial</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/unchihugo/FluentFlyout/master/FluentFlyoutWPF/Resources/FluentFlyout2.ico</iconUrl>
+    <licenseUrl>https://github.com/tanzim2000/fluentflyout-unofficial/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/tanzim2000/fluentflyout-unofficial</projectSourceUrl>
+    <docsUrl>https://github.com/tanzim2000/fluentflyout-unofficial#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/tanzim2000/fluentflyout-unofficial/issues</bugTrackerUrl>
+    <tags>fluentflyout media-flyout windows11 fluent-design unofficial admin</tags>
+    <summary>Unofficial, automated build of FluentFlyout — a Fluent 2-styled media flyout app for Windows 11.</summary>
+    <description>
+**Unofficial**, automatically-rebuilt binaries of [FluentFlyout](https://github.com/unchihugo/FluentFlyout), a free, open-source (GPLv3) Fluent 2-styled media flyout app for Windows 11.
+
+This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. It exists to provide an easy, auto-updating install path for the same free, open-source build already available on FluentFlyout's own GitHub page — just packaged for Chocolatey.
+
+Every build here is compiled directly from upstream's public source by an automated pipeline, signed with this project's own certificate (not upstream's), and traceable back to the exact source commit used. Full details, source, and build provenance: https://github.com/tanzim2000/fluentflyout-unofficial
+
+No paywalled features are unlocked by this package — it provides the same free feature set upstream already offers on their own GitHub releases.
+    </description>
+    <releaseNotes>https://github.com/tanzim2000/fluentflyout-unofficial/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
