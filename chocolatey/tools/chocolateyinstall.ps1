@@ -22,8 +22,12 @@ Write-Host "Downloading FluentFlyout ($arch) v$version..."
 Get-ChocolateyWebFile -PackageName $packageName -FileFullPath $msixPath -Url $msixUrl -Checksum $msixHash -ChecksumType 'sha256'
 Get-ChocolateyWebFile -PackageName $packageName -FileFullPath $certPath -Url $certUrl
 
-Write-Host "Trusting the package signing certificate (Local Machine, Trusted Root)..."
-Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+# Self-signed certs used to sign MSIX packages are leaf certs, not CAs, so
+# Windows' AppX validator requires them in the Trusted People store rather
+# than Trusted Root - confirmed via a real installation failure
+# (0x800B0109) that only resolved once the cert was placed here instead.
+Write-Host "Trusting the package signing certificate (Local Machine, Trusted People)..."
+Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
 
 Write-Host "Installing FluentFlyout..."
 Add-AppxPackage -Path $msixPath
