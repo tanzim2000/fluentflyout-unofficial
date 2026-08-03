@@ -88,6 +88,17 @@ jobs:
           (Get-Content $manifest -Raw) -replace 'Publisher="[^"]*"', 'Publisher="CN=tanzim2000, O=FluentFlyout Unofficial Builds"' | Set-Content $manifest
           Select-String -Path $manifest -Pattern 'Publisher='
 
+      - name: Patch About page with unofficial build attribution
+        run: |
+          # Adds a single line crediting this repo as the distributor, right
+          # next to the existing GitHub link at the bottom of the About page.
+          # Leaves everything else on the page - including upstream's own
+          # Developers/Translators credits - completely untouched.
+          $aboutXaml = "upstream\FluentFlyoutWPF\Pages\AboutPage.xaml"
+          $anchor = '                <ui:Anchor Appearance="Transparent" Content="{DynamicResource GitHubRepoLink}" Icon="{ui:SymbolIcon Open24}" NavigateUri="https://github.com/unchihugo/FluentFlyout" Margin="12,0,0,0" />'
+          $newLine = '                <ui:Anchor Appearance="Transparent" Content="Unofficial build by tanzim2000 and Claude" Icon="{ui:SymbolIcon ArrowDownload24}" NavigateUri="https://github.com/tanzim2000/fluentflyout-unofficial" Margin="12,0,0,0" />'
+          (Get-Content $aboutXaml -Raw) -replace [regex]::Escape($anchor), "$anchor`n$newLine" | Set-Content $aboutXaml
+
       - uses: microsoft/setup-msbuild@v3
       - uses: nuget/setup-nuget@v3
 
@@ -173,9 +184,29 @@ jobs:
           name: signed-release
           path: output\*
 
+  package-installer:
+    name: Building Installer
+    needs: [check-release, sign-packages]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Compile FluentFlyoutInstaller.exe
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\FluentFlyoutInstaller.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: installer-exe
+          path: installer\Output\FluentFlyout_Installer.exe
+
   publish:
     name: Publishing Release
-    needs: [check-release, sign-packages]
+    needs: [check-release, sign-packages, package-installer]
     runs-on: ubuntu-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
@@ -189,6 +220,12 @@ jobs:
           name: signed-release
           path: output
 
+      - name: Download installer
+        uses: actions/download-artifact@v7
+        with:
+          name: installer-exe
+          path: output
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -199,6 +236,10 @@ jobs:
             https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }}
 
             See build-provenance.json for the exact source commit and build run used.
+
+            New here? Download FluentFlyout_Installer.exe below and just run it -
+            it handles everything (architecture detection, certificate trust,
+            install, cleanup) on its own.
           files: output/*
 
       - name: Notify (push notification via ntfy.sh)
