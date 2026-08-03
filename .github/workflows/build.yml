@@ -2,7 +2,7 @@ name: Build & Publish FluentFlyout Unofficial
 
 on:
   schedule:
-    - cron: '0 12 * * *' 
+    - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:          # allows manual "Run workflow" button too
 
 permissions:
@@ -59,6 +59,7 @@ jobs:
             /p:Platform=${{ matrix.platform }} `
             /p:AppxBundle=Never `
             /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxPackageSigningEnabled=false `
             /p:AppxPackageDir="$PWD\output\${{ matrix.platform }}\"
 
       - name: Upload single-arch package
