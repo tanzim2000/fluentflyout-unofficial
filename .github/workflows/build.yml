@@ -2,7 +2,7 @@ name: Build & Publish FluentFlyout Unofficial
 
 on:
   schedule:
-    - cron: '0 0 * * *' 
+    - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:          # allows manual "Run workflow" button too
 
 permissions:
@@ -33,6 +33,9 @@ jobs:
     needs: check-release
     if: needs.check-release.outputs.should_build == 'true'
     runs-on: windows-latest
+    strategy:
+      matrix:
+        platform: [x64, ARM64]
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
     steps:
@@ -43,31 +46,60 @@ jobs:
           ref: ${{ env.NEW_VERSION }}
           path: upstream
 
+      - uses: microsoft/setup-msbuild@v2
+      - uses: nuget/setup-nuget@v2
+
+      - name: Restore for ${{ matrix.platform }}
+        run: msbuild upstream\FluentFlyout.sln /t:Restore /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+
+      - name: Build ${{ matrix.platform }} package (unbundled)
+        run: |
+          msbuild upstream\FluentFlyoutMSIX\FluentFlyoutMSIX.wapproj `
+            /p:Configuration=Release `
+            /p:Platform=${{ matrix.platform }} `
+            /p:AppxBundle=Never `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxPackageDir="$PWD\output\${{ matrix.platform }}\"
+
+      - name: Upload single-arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: output\${{ matrix.platform }}\**\*.msix
+
+  bundle-sign-publish:
+    needs: [check-release, build]
+    runs-on: windows-latest
+    env:
+      NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+    steps:
       - name: Checkout this repo (for cert + state file)
         uses: actions/checkout@v4
         with:
           path: self
 
-      - uses: microsoft/setup-msbuild@v2
-      - uses: nuget/setup-nuget@v2
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: packages
+          merge-multiple: false
 
-      - name: Restore
-        run: nuget restore upstream\FluentFlyout.sln
-
-      - name: Build x64 + ARM64 bundle
+      - name: Locate makeappx and signtool
+        id: tools
         run: |
-          msbuild upstream\FluentFlyoutMSIX\FluentFlyoutMSIX.wapproj `
-            /p:Configuration=Release `
-            /p:AppxBundlePlatforms="x64|arm64" `
-            /p:AppxBundle=Always `
-            /p:UapAppxPackageBuildMode=SideloadOnly `
-            /p:AppxPackageDir="$PWD\output\"
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Select-Object -Last 1
+          $signtool  = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe"  | Select-Object -Last 1
+          echo "makeappx=$($makeappx.FullName)" >> $env:GITHUB_OUTPUT
+          echo "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
 
-      - name: Locate signtool
-        id: signtool
+      - name: Collect .msix files into one folder
         run: |
-          $tool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
-          echo "path=$($tool.FullName)" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Path bundle-input -Force | Out-Null
+          Get-ChildItem -Recurse -Path packages -Filter *.msix | Copy-Item -Destination bundle-input
+
+      - name: Create the bundle
+        run: |
+          & "${{ steps.tools.outputs.makeappx }}" bundle /d bundle-input /p output\FluentFlyout.msixbundle /o
 
       - name: Decode signing certificate
         run: |
@@ -76,47 +108,21 @@ jobs:
 
       - name: Sign the bundle
         run: |
-          $bundle = Get-ChildItem "output\*.msixbundle" | Select-Object -First 1
-          & "${{ steps.signtool.outputs.path }}" sign /f signing.pfx /p "${{ secrets.CERT_PASSWORD }}" /fd SHA256 $bundle.FullName
-          echo "BUNDLE_PATH=$($bundle.FullName)" >> $env:GITHUB_ENV
-          echo "BUNDLE_NAME=$($bundle.Name)" >> $env:GITHUB_ENV
+          & "${{ steps.tools.outputs.signtool }}" sign /f signing.pfx /p "${{ secrets.CERT_PASSWORD }}" /fd SHA256 output\FluentFlyout.msixbundle
+          echo "BUNDLE_NAME=FluentFlyout_$env:NEW_VERSION.msixbundle" >> $env:GITHUB_ENV
+          Rename-Item output\FluentFlyout.msixbundle "FluentFlyout_$env:NEW_VERSION.msixbundle"
 
       - name: Generate checksum + provenance
         run: |
-          $hash = (Get-FileHash $env:BUNDLE_PATH -Algorithm SHA256).Hash
-          "$hash  $env:BUNDLE_NAME" | Out-File SHA256SUMS.txt -Encoding ascii
+          $hash = (Get-FileHash "output\$env:BUNDLE_NAME" -Algorithm SHA256).Hash
+          "$hash  $env:BUNDLE_NAME" | Out-File output\SHA256SUMS.txt -Encoding ascii
           @{
             upstream_repo = "unchihugo/FluentFlyout"
             upstream_tag  = "$env:NEW_VERSION"
             built_at      = (Get-Date -Format "o")
             workflow_run  = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          } | ConvertTo-Json | Out-File build-provenance.json -Encoding utf8
-
-      - name: Copy public cert alongside release
-        run: Copy-Item self\signing.cer .\signing.cer
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-assets
-          path: |
-            ${{ env.BUNDLE_PATH }}
-            SHA256SUMS.txt
-            build-provenance.json
-            signing.cer
-
-  publish:
-    needs: [check-release, build]
-    runs-on: ubuntu-latest
-    env:
-      NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-assets
-          path: release-assets
+          } | ConvertTo-Json | Out-File output\build-provenance.json -Encoding utf8
+          Copy-Item self\signing.cer output\signing.cer
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -128,11 +134,12 @@ jobs:
             https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }}
 
             See build-provenance.json for the exact source commit and build run used.
-          files: release-assets/*
+          files: output/*
 
       - name: Update version tracker
         run: |
-          echo "${{ env.NEW_VERSION }}" > last_built_version.txt
+          echo "${{ env.NEW_VERSION }}" > self\last_built_version.txt
+          cd self
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add last_built_version.txt
