@@ -152,7 +152,7 @@ var
 	Arch, TempDir: String;
 	SizeScript, DownloadScript, TrustScript, InstallScript, CleanupScript: String;
 	AppIdPath, SizePath, MsixPath, DoneMarkerPath: String;
-	SizeText: String;
+	SizeAnsi, AppIdAnsi: AnsiString;
 	ExpectedSize: Int64;
 begin
 	if CurStep = ssPostInstall then
@@ -186,11 +186,8 @@ begin
 			RunHiddenScript(SizeScript, 'size.ps1', True);
 
 			ExpectedSize := 0;
-			if FileExists(SizePath) then
-			begin
-				SizeText := LoadStringFromFile(SizePath);
-				ExpectedSize := StrToInt64Def(Trim(SizeText), 0);
-			end;
+			if LoadStringFromFile(SizePath, SizeAnsi) then
+				ExpectedSize := StrToInt64Def(Trim(String(SizeAnsi)), 0);
 
 			// Step 3b: start the real download in the background, then
 			// watch its progress until the "done" marker appears
@@ -232,8 +229,8 @@ begin
 				'if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value $appId -NoNewline }';
 			RunHiddenScript(InstallScript, 'install.ps1', True);
 
-			if FileExists(AppIdPath) then
-				AppLaunchID := LoadStringFromFile(AppIdPath)
+			if LoadStringFromFile(AppIdPath, AppIdAnsi) then
+				AppLaunchID := String(AppIdAnsi)
 			else
 				AppLaunchID := '';
 
