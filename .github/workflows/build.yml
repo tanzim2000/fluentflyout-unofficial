@@ -2,7 +2,7 @@ name: Build & Publish FluentFlyout Unofficial
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
+    - cron: '0 0 * * *' 
   workflow_dispatch:          # allows manual "Run workflow" button too
 
 permissions:
