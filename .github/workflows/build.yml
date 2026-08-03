@@ -69,6 +69,8 @@ jobs:
             /p:AppxBundle=Never `
             /p:UapAppxPackageBuildMode=SideloadOnly `
             /p:AppxPackageSigningEnabled=false `
+            /p:SelfContained=false `
+            /p:SatelliteResourceLanguages=en `
             /p:AppxPackageDir="$PWD\output\${{ matrix.platform }}\"
 
       - name: Upload single-arch package
@@ -77,8 +79,8 @@ jobs:
           name: package-${{ matrix.platform }}
           path: output\${{ matrix.platform }}\**\*.msix
 
-  bundle-and-sign:
-    name: Bundling & Signing
+  sign-packages:
+    name: Signing Packages
     needs: [check-release, build]
     runs-on: windows-latest
     env:
@@ -96,38 +98,33 @@ jobs:
           path: packages
           merge-multiple: false
 
-      - name: Locate makeappx and signtool
+      - name: Locate signtool
         id: tools
         run: |
-          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Select-Object -Last 1
-          $signtool  = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe"  | Select-Object -Last 1
-          echo "makeappx=$($makeappx.FullName)" >> $env:GITHUB_OUTPUT
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
           echo "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
-
-      - name: Collect .msix files into one folder
-        run: |
-          New-Item -ItemType Directory -Path bundle-input -Force | Out-Null
-          Get-ChildItem -Recurse -Path packages -Filter *.msix | Copy-Item -Destination bundle-input
-
-      - name: Create the bundle
-        run: |
-          & "${{ steps.tools.outputs.makeappx }}" bundle /d bundle-input /p output\FluentFlyout.msixbundle /o
 
       - name: Decode signing certificate
         run: |
           $bytes = [Convert]::FromBase64String("${{ secrets.SIGNING_CERT_PFX_BASE64 }}")
           [IO.File]::WriteAllBytes("$PWD\signing.pfx", $bytes)
 
-      - name: Sign the bundle
+      - name: Sign each architecture's package separately
         run: |
-          & "${{ steps.tools.outputs.signtool }}" sign /f signing.pfx /p "${{ secrets.CERT_PASSWORD }}" /fd SHA256 output\FluentFlyout.msixbundle
-          echo "BUNDLE_NAME=FluentFlyout_$env:NEW_VERSION.msixbundle" >> $env:GITHUB_ENV
-          Rename-Item output\FluentFlyout.msixbundle "FluentFlyout_$env:NEW_VERSION.msixbundle"
+          New-Item -ItemType Directory -Path output -Force | Out-Null
+          $shaLines = @()
+          foreach ($platform in @("x64", "ARM64")) {
+            $msix = Get-ChildItem -Recurse -Path "packages\package-$platform" -Filter *.msix | Select-Object -First 1
+            $destName = "FluentFlyout_${env:NEW_VERSION}_$platform.msix"
+            Copy-Item $msix.FullName "output\$destName"
+            & "${{ steps.tools.outputs.signtool }}" sign /f signing.pfx /p "${{ secrets.CERT_PASSWORD }}" /fd SHA256 "output\$destName"
+            $hash = (Get-FileHash "output\$destName" -Algorithm SHA256).Hash
+            $shaLines += "$hash  $destName"
+          }
+          $shaLines | Out-File output\SHA256SUMS.txt -Encoding ascii
 
-      - name: Generate checksum + provenance
+      - name: Generate provenance
         run: |
-          $hash = (Get-FileHash "output\$env:BUNDLE_NAME" -Algorithm SHA256).Hash
-          "$hash  $env:BUNDLE_NAME" | Out-File output\SHA256SUMS.txt -Encoding ascii
           @{
             upstream_repo = "unchihugo/FluentFlyout"
             upstream_tag  = "$env:NEW_VERSION"
@@ -144,7 +141,7 @@ jobs:
 
   publish:
     name: Publishing Release
-    needs: [check-release, bundle-and-sign]
+    needs: [check-release, sign-packages]
     runs-on: ubuntu-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
