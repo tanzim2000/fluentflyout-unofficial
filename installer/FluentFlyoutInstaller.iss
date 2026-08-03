@@ -17,11 +17,13 @@
 ; new FluentFlyout version comes out - it always reads the current
 ; version straight from the repo at install time.
 ;
-; All PowerShell work runs hidden (no visible console window). Progress
-; is shown using Inno's own built-in progress controls (no third-party
-; plugin) - a 4-stage overall progress bar, plus a second live byte-count
-; progress bar that appears specifically while the .msix is downloading,
-; so a slow connection doesn't look like the installer has frozen.
+; The download and size-check stages run hidden (Inno's own progress bar
+; is the visible element there). The certificate-trust and install steps
+; run with a visible PowerShell window - deliberately, since silent
+; background execution that modifies certificate trust is exactly the
+; kind of behavior that can trip antivirus heuristics on an unsigned
+; binary; showing those two steps trades a little polish for honesty
+; about what's happening on screen.
 
 [Setup]
 AppName=FluentFlyout (Unofficial Build) Installer
@@ -94,10 +96,11 @@ begin
 	DownloadBar.Visible := False;
 end;
 
-// Writes a PowerShell script to a temp file and runs it hidden (no
-// console window). Waits='true' blocks until it finishes; Waits='false'
-// starts it and returns immediately, so we can poll progress meanwhile.
-procedure RunHiddenScript(const ScriptContent, ScriptName: String; Wait: Boolean);
+// Writes a PowerShell script to a temp file and runs it. ShowCmd controls
+// window visibility (SW_HIDE or SW_SHOW); Wait='true' blocks until it
+// finishes, Wait='false' starts it and returns immediately so we can poll
+// progress meanwhile.
+procedure RunScript(const ScriptContent, ScriptName: String; ShowCmd: Integer; Wait: Boolean);
 var
 	ScriptPath: String;
 	ResultCode: Integer;
@@ -106,10 +109,10 @@ begin
 	SaveStringToFile(ScriptPath, ScriptContent, False);
 	if Wait then
 		Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
-			'', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+			'', ShowCmd, ewWaitUntilTerminated, ResultCode)
 	else
 		Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
-			'', SW_HIDE, ewNoWait, ResultCode);
+			'', ShowCmd, ewNoWait, ResultCode);
 end;
 
 // Polls the .msix file's size on disk while it downloads in the
@@ -183,7 +186,7 @@ begin
 				'  $resp = Invoke-WebRequest -Uri $msixUrl -Method Head -UseBasicParsing -MaximumRedirection 5' + #13#10 +
 				'  Set-Content -Path ''' + SizePath + ''' -Value $resp.Headers[''Content-Length''] -NoNewline' + #13#10 +
 				'} catch { Set-Content -Path ''' + SizePath + ''' -Value ''0'' -NoNewline }';
-			RunHiddenScript(SizeScript, 'size.ps1', True);
+			RunScript(SizeScript, 'size.ps1', SW_HIDE, True);
 
 			ExpectedSize := 0;
 			if LoadStringFromFile(SizePath, SizeAnsi) then
@@ -201,7 +204,7 @@ begin
 				'Invoke-WebRequest -Uri $certUrl -OutFile ''' + TempDir + '\signing.cer''' + #13#10 +
 				'Invoke-WebRequest -Uri $msixUrl -OutFile ''' + MsixPath + '''' + #13#10 +
 				'New-Item -Path ''' + DoneMarkerPath + ''' -ItemType File | Out-Null';
-			RunHiddenScript(DownloadScript, 'download.ps1', False);
+			RunScript(DownloadScript, 'download.ps1', SW_HIDE, False);
 			WatchDownloadProgress(MsixPath, DoneMarkerPath, ExpectedSize);
 
 			// Step 4: trust the certificate. This goes into Trusted People,
@@ -214,7 +217,7 @@ begin
 			TrustScript :=
 				'$ErrorActionPreference = ''Stop''' + #13#10 +
 				'Import-Certificate -FilePath ''' + TempDir + '\signing.cer'' -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null';
-			RunHiddenScript(TrustScript, 'trust.ps1', True);
+			RunScript(TrustScript, 'trust.ps1', SW_SHOW, True);
 
 			// Step 5: install, then resolve the Start Menu AppID so the
 			// "Launch FluentFlyout" checkbox on the Finish page works. MSIX
@@ -227,7 +230,7 @@ begin
 				'Add-AppxPackage -Path ''' + MsixPath + '''' + #13#10 +
 				'$appId = Get-StartApps | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1 -ExpandProperty AppID' + #13#10 +
 				'if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value $appId -NoNewline }';
-			RunHiddenScript(InstallScript, 'install.ps1', True);
+			RunScript(InstallScript, 'install.ps1', SW_SHOW, True);
 
 			if LoadStringFromFile(AppIdPath, AppIdAnsi) then
 				AppLaunchID := String(AppIdAnsi)
@@ -239,7 +242,7 @@ begin
 			CleanupScript :=
 				'Remove-Item ''' + TempDir + '\signing.cer'', ''' + MsixPath + ''', ''' +
 				AppIdPath + ''', ''' + SizePath + ''', ''' + DoneMarkerPath + ''' -Force -ErrorAction SilentlyContinue';
-			RunHiddenScript(CleanupScript, 'cleanup.ps1', True);
+			RunScript(CleanupScript, 'cleanup.ps1', SW_HIDE, True);
 		finally
 			ProgressPage.Hide;
 		end;
