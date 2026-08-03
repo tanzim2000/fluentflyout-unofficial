@@ -54,7 +54,8 @@ jobs:
 
       - name: Build ${{ matrix.platform }} package (unbundled)
         run: |
-          msbuild upstream\FluentFlyoutMSIX\FluentFlyoutMSIX.wapproj `
+          msbuild upstream\FluentFlyout.sln `
+            /t:FluentFlyoutMSIX `
             /p:Configuration=Release `
             /p:Platform=${{ matrix.platform }} `
             /p:AppxBundle=Never `
