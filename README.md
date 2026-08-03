@@ -44,7 +44,17 @@ Runs entirely on GitHub Actions. No manual steps once a new upstream tag is dete
 
 ## Installation
 
-### Option 1 — Chocolatey (recommended, auto-updating)
+### Option 1 — One-Click Installer (easiest)
+
+1. Go to the [Releases page](../../releases/latest) and download `FluentFlyout_Installer.exe`.
+2. Run it. Windows will likely show a **"Windows protected your PC"** SmartScreen warning first — click **More info → Run anyway**. This is expected and separate from certificate trust; it shows up because the installer itself isn't signed yet, not because anything is wrong.
+3. Approve the admin (UAC) prompt that follows.
+
+That's it — the installer detects your CPU architecture, downloads the right files, trusts the certificate, and installs the app automatically. No manual certificate steps.
+
+> Note: this installer doesn't auto-update. Re-download and re-run it whenever a new version comes out, or switch to Option 2 below if you'd rather updates happen on their own.
+
+### Option 2 — Chocolatey (auto-updating)
 
 ```powershell
 choco install fluentflyout-unofficial
@@ -52,7 +62,7 @@ choco install fluentflyout-unofficial
 
 Future updates: `choco upgrade fluentflyout-unofficial` (or let your regular `choco upgrade all` pick it up).
 
-### Option 2 — GitHub Release (manual)
+### Option 3 — GitHub Release (fully manual)
 
 1. Go to the [Releases page](../../releases/latest).
 2. Figure out which CPU your PC has:
@@ -62,7 +72,7 @@ Future updates: `choco upgrade fluentflyout-unofficial` (or let your regular `ch
 3. Download **both**:
    - `signing.cer`
    - `FluentFlyout_<version>_x64.msix` **or** `FluentFlyout_<version>_ARM64.msix` (whichever matches your CPU)
-4. Right-click the `.cer` file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted Root Certification Authorities** → **Finish**.
+4. Right-click the `.cer` file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted People** → **Finish**.
 5. Double-click the `.msix` file → the Windows App Installer will open → **Install**.
 
 > **Note:** these builds are lightweight (framework-dependent), meaning Windows may prompt you to install the **.NET Desktop Runtime** the first time you launch the app if it isn't already on your system. This is a normal, small, one-time Microsoft download — not something this project manages.
