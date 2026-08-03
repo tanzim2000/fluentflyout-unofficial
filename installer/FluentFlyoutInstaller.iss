@@ -99,8 +99,8 @@ begin
 			DownloadTemporaryFile('https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/refs/heads/main/last_built_version.txt',
 				'last_built_version.txt', '', nil);
 		except
-			MsgBox('Could not check the current FluentFlyout version. Check your internet connection and try again.' +
-				#13#10 + GetExceptionMessage, mbCriticalError, MB_OK);
+			MsgBox('Could not check the current FluentFlyout version. Check your internet connection and try again.' + #13#10 +
+				GetExceptionMessage, mbCriticalError, MB_OK);
 			Exit;
 		end;
 		if not LoadStringFromFile(VersionPath, VersionAnsi) then
