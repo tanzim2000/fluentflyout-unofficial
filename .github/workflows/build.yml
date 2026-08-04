@@ -166,6 +166,12 @@ jobs:
             $hash = (Get-FileHash "output\$destName" -Algorithm SHA256).Hash
             $shaLines += "$hash  $destName"
           }
+          # The cert also needs a recorded checksum - Chocolatey's package
+          # validator requires every remote download in an install script
+          # to be checksum-verified, including signing.cer.
+          Copy-Item self\signing.cer output\signing.cer
+          $certHash = (Get-FileHash "output\signing.cer" -Algorithm SHA256).Hash
+          $shaLines += "$certHash  signing.cer"
           $shaLines | Out-File output\SHA256SUMS.txt -Encoding ascii
 
       - name: Generate provenance
@@ -176,7 +182,6 @@ jobs:
             built_at      = (Get-Date -Format "o")
             workflow_run  = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } | ConvertTo-Json | Out-File output\build-provenance.json -Encoding utf8
-          Copy-Item self\signing.cer output\signing.cer
 
       - name: Upload signed release assets
         uses: actions/upload-artifact@v6
@@ -289,8 +294,10 @@ jobs:
           $lines = Get-Content output\SHA256SUMS.txt
           $x64Hash = (($lines | Where-Object { $_ -match "_x64\.msix" }) -split '\s+')[0]
           $armHash = (($lines | Where-Object { $_ -match "_ARM64\.msix" }) -split '\s+')[0]
+          $certHash = (($lines | Where-Object { $_ -match "signing\.cer" }) -split '\s+')[0]
           echo "x64_hash=$x64Hash" >> $env:GITHUB_OUTPUT
           echo "arm_hash=$armHash" >> $env:GITHUB_OUTPUT
+          echo "cert_hash=$certHash" >> $env:GITHUB_OUTPUT
 
       - name: Prepare Chocolatey package
         run: |
@@ -308,6 +315,7 @@ jobs:
           (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
             -replace '__X64_SHA256__', "${{ steps.sums.outputs.x64_hash }}" `
             -replace '__ARM64_SHA256__', "${{ steps.sums.outputs.arm_hash }}" `
+            -replace '__CERT_SHA256__', "${{ steps.sums.outputs.cert_hash }}" `
             | Set-Content chocolatey\tools\chocolateyinstall.ps1
 
       - name: Pack Chocolatey package (not pushed yet — see below)
