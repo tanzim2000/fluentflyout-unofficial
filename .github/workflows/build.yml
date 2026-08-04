@@ -29,6 +29,8 @@ jobs:
   check-release:
     name: Checking For New Release
     runs-on: ubuntu-latest
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
       should_build: ${{ steps.check.outputs.should_build }}
@@ -49,6 +51,18 @@ jobs:
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Only fires for a genuinely new upstream release (not a manual
+      # force_rebuild of a version already built).
+      - name: Notify (new release detected)
+        if: steps.check.outputs.should_build == 'true' && env.NTFY_TOPIC != ''
+        run: |
+          curl -s \
+            -H "Title: New FluentFlyout release detected" \
+            -H "Priority: default" \
+            -H "Tags: eyes" \
+            -d "Upstream published ${{ steps.check.outputs.new_version }}. Starting the build now." \
+            "https://ntfy.sh/$NTFY_TOPIC"
 
       # Resolves the checkbox options for both manual runs (uses whatever was checked)
       # and scheduled/automatic runs (no inputs exist, so the defaults below apply).
@@ -254,7 +268,7 @@ jobs:
             -H "Title: FluentFlyout Unofficial ${{ env.NEW_VERSION }} published" \
             -H "Priority: default" \
             -H "Tags: package" \
-            -d "New GitHub Release for ${{ env.NEW_VERSION }} is live. Go test it: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.NEW_VERSION }}" \
+            -d "New GitHub Release for ${{ env.NEW_VERSION }} is live." \
             "https://ntfy.sh/$NTFY_TOPIC"
 
 
