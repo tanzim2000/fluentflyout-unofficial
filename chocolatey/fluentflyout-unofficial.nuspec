@@ -7,18 +7,20 @@
     <authors>unchihugo (original author), tanzim2000 (unofficial packaging)</authors>
     <owners>tanzim2000</owners>
     <projectUrl>https://github.com/tanzim2000/fluentflyout-unofficial</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/unchihugo/FluentFlyout/master/FluentFlyoutWPF/Resources/FluentFlyout2.ico</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/main/chocolatey/icon.png</iconUrl>
     <licenseUrl>https://github.com/tanzim2000/fluentflyout-unofficial/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/tanzim2000/fluentflyout-unofficial</projectSourceUrl>
+    <packageSourceUrl>https://github.com/tanzim2000/fluentflyout-unofficial/tree/main/chocolatey</packageSourceUrl>
     <docsUrl>https://github.com/tanzim2000/fluentflyout-unofficial#readme</docsUrl>
     <bugTrackerUrl>https://github.com/tanzim2000/fluentflyout-unofficial/issues</bugTrackerUrl>
-    <tags>fluentflyout media-flyout windows11 fluent-design unofficial admin</tags>
+    <tags>fluentflyout media-flyout windows11 fluent-design unofficial admin x64 arm64</tags>
     <summary>Unofficial, automated build of FluentFlyout — a Fluent 2-styled media flyout app for Windows 11.</summary>
     <description>
 **Unofficial**, automatically-rebuilt binaries of [FluentFlyout](https://github.com/unchihugo/FluentFlyout), a free, open-source (GPLv3) Fluent 2-styled media flyout app for Windows 11.
 
 This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. It exists to provide an easy, auto-updating install path for the same free, open-source build already available on FluentFlyout's own GitHub page — just packaged for Chocolatey.
+
+Supports both **x64** and **ARM64** — this script automatically detects your system's architecture and downloads the matching build.
 
 Every build here is compiled directly from upstream's public source by an automated pipeline, signed with this project's own certificate (not upstream's), and traceable back to the exact source commit used. Full details, source, and build provenance: https://github.com/tanzim2000/fluentflyout-unofficial
 
