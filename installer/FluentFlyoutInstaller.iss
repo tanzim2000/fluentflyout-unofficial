@@ -55,6 +55,31 @@ begin
 	Result := AppLaunchID <> '';
 end;
 
+// Looks up TargetFilename's expected hash from SHA256SUMS.txt content
+// (format: "<hash>  <filename>" per line, same as sign-packages produces).
+// Returns '' if not found - callers treat that as "skip verification"
+// rather than failing the whole install over it.
+function ParseHashForFile(const SumsContent, TargetFilename: String): String;
+var
+	Lines, Parts: TArrayOfString;
+	I: Integer;
+begin
+	Result := '';
+	Lines := StringSplit(SumsContent, [#13#10, #10], stExcludeEmpty);
+	for I := 0 to GetArrayLength(Lines) - 1 do
+	begin
+		if Pos(TargetFilename, Lines[I]) > 0 then
+		begin
+			Parts := StringSplit(Trim(Lines[I]), [' '], stExcludeEmpty);
+			if GetArrayLength(Parts) > 0 then
+			begin
+				Result := Parts[0];
+				Exit;
+			end;
+		end;
+	end;
+end;
+
 procedure InitializeWizard();
 begin
 	DownloadPage := CreateDownloadPage('Downloading FluentFlyout',
@@ -77,10 +102,11 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
 	Arch, TempDir, Version: String;
-	VersionAnsi, AppIdAnsi: AnsiString;
-	CertUrl, MsixUrl: String;
+	VersionAnsi, AppIdAnsi, SumsAnsi: AnsiString;
+	CertUrl, MsixUrl, SumsUrl, SumsContent: String;
+	CertHash, MsixHash: String;
 	TrustScript, InstallScript: String;
-	AppIdPath, VersionPath: String;
+	AppIdPath, VersionPath, SumsPath: String;
 begin
 	if CurStep = ssPostInstall then
 	begin
@@ -113,11 +139,33 @@ begin
 		CertUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/signing.cer';
 		MsixUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/FluentFlyout_' + Version + '_' + Arch + '.msix';
 
-		// Step 3b: download the cert + matching .msix, with Inno's own
+		// Step 3b: look up expected hashes from the published checksum
+		// manifest, so the download can be verified the same way
+		// chocolateyinstall.ps1 already does. Non-fatal if this fails -
+		// we proceed without verification rather than blocking the
+		// install over a missing manifest.
+		SumsPath := TempDir + '\SHA256SUMS.txt';
+		CertHash := '';
+		MsixHash := '';
+		SumsUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/SHA256SUMS.txt';
+		try
+			DownloadTemporaryFile(SumsUrl, 'SHA256SUMS.txt', '', nil);
+			if LoadStringFromFile(SumsPath, SumsAnsi) then
+			begin
+				SumsContent := String(SumsAnsi);
+				CertHash := ParseHashForFile(SumsContent, 'signing.cer');
+				MsixHash := ParseHashForFile(SumsContent, 'FluentFlyout_' + Version + '_' + Arch + '.msix');
+			end;
+		except
+			// Leave both hashes as '' - DownloadPage.Add treats that as
+			// "skip verification for this file".
+		end;
+
+		// Step 3c: download the cert + matching .msix, with Inno's own
 		// native download progress page
 		DownloadPage.Clear;
-		DownloadPage.Add(CertUrl, 'signing.cer', '');
-		DownloadPage.Add(MsixUrl, 'app.msix', '');
+		DownloadPage.Add(CertUrl, 'signing.cer', CertHash);
+		DownloadPage.Add(MsixUrl, 'app.msix', MsixHash);
 		DownloadPage.Show;
 		try
 			try
@@ -171,5 +219,6 @@ begin
 		// removes the couple of files we wrote directly ourselves.
 		DeleteFile(AppIdPath);
 		DeleteFile(VersionPath);
+		DeleteFile(SumsPath);
 	end;
 end;
