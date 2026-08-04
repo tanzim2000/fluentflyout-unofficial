@@ -45,6 +45,11 @@ jobs:
           LATEST=$(curl -s https://api.github.com/repos/unchihugo/FluentFlyout/releases/latest | jq -r .tag_name)
           LAST_BUILT=$(cat last_built_version.txt 2>/dev/null || echo "none")
           echo "Upstream latest: $LATEST | Last built: $LAST_BUILT | Force rebuild: ${{ github.event.inputs.force_rebuild }}"
+          if [ "$LATEST" != "$LAST_BUILT" ] && [ "$LATEST" != "null" ]; then
+            echo "is_new_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_new_version=false" >> "$GITHUB_OUTPUT"
+          fi
           if { [ "$LATEST" != "$LAST_BUILT" ] || [ "${{ github.event.inputs.force_rebuild }}" == "true" ]; } && [ "$LATEST" != "null" ]; then
             echo "new_version=$LATEST" >> "$GITHUB_OUTPUT"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
@@ -52,10 +57,12 @@ jobs:
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Only fires for a genuinely new upstream release (not a manual
-      # force_rebuild of a version already built).
+      # is_new_version (set above) is true only when the upstream tag
+      # actually changed - unlike should_build, it stays false on a
+      # manual force_rebuild of a version already built, so this doesn't
+      # fire on every test re-run.
       - name: Notify (new release detected)
-        if: steps.check.outputs.should_build == 'true' && env.NTFY_TOPIC != ''
+        if: steps.check.outputs.is_new_version == 'true' && env.NTFY_TOPIC != ''
         run: |
           curl -s \
             -H "Title: New FluentFlyout release detected" \
