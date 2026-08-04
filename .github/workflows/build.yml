@@ -296,7 +296,13 @@ jobs:
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
           $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
-          $pkgVer = if ($markUntested -eq 'true') { "$ver-untested" } else { $ver }
+          # While untested, append this run's number as a revision segment
+          # (e.g. 2.13.1.47-untested) so re-pushing the same upstream tag
+          # never collides with an already-published version - Chocolatey
+          # (like all NuGet feeds) treats id+version as immutable once live.
+          # Once a build graduates out of "-untested", it uses the clean
+          # version with no revision segment.
+          $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { $ver }
           echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
           (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer | Set-Content chocolatey\fluentflyout-unofficial.nuspec
           (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
