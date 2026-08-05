@@ -118,7 +118,21 @@ jobs:
           $aboutXaml = "upstream\FluentFlyoutWPF\Pages\AboutPage.xaml"
           $anchor = '                <ui:Anchor Appearance="Transparent" Content="{DynamicResource GitHubRepoLink}" Icon="{ui:SymbolIcon Open24}" NavigateUri="https://github.com/unchihugo/FluentFlyout" Margin="12,0,0,0" />'
           $newLine = '                <ui:Anchor Appearance="Transparent" Content="Unofficial build by tanzim2000 and Claude" Icon="{ui:SymbolIcon ArrowDownload24}" NavigateUri="https://github.com/tanzim2000/fluentflyout-unofficial" Margin="12,0,0,0" />'
-          (Get-Content $aboutXaml -Raw) -replace [regex]::Escape($anchor), "$anchor`n$newLine" | Set-Content $aboutXaml
+
+          $before = Get-Content $aboutXaml -Raw
+          $after = $before -replace [regex]::Escape($anchor), "$anchor`n$newLine"
+
+          # HARD REQUIREMENT: if the anchor text wasn't found (e.g. upstream
+          # reformatted this file), -replace silently does nothing and the
+          # build would otherwise succeed WITHOUT the credit line ever
+          # appearing - with no error, no warning, nothing in the logs.
+          # That's not acceptable: no credit line means no build, full stop.
+          if ($after -eq $before) {
+            Write-Error "FATAL: Could not insert the credit line into AboutPage.xaml - the expected anchor text was not found (upstream likely changed this file). Refusing to build without credit. Update the `$anchor value in build.yml to match the file's current content."
+            exit 1
+          }
+
+          Set-Content $aboutXaml $after
 
       - uses: microsoft/setup-msbuild@v3
       - uses: nuget/setup-nuget@v3
@@ -230,9 +244,130 @@ jobs:
           name: installer-exe
           path: installer\Output\FluentFlyout_Installer.exe
 
+  smoke-test:
+    name: Smoke Testing Build
+    needs: [check-release, sign-packages, package-installer]
+    runs-on: windows-latest
+    env:
+      NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+    outputs:
+      msix_pass: ${{ steps.tests.outputs.msix_pass }}
+      exe_pass: ${{ steps.tests.outputs.exe_pass }}
+    steps:
+      - name: Download signed release assets
+        uses: actions/download-artifact@v7
+        with:
+          name: signed-release
+          path: output
+
+      - name: Download installer
+        uses: actions/download-artifact@v7
+        with:
+          name: installer-exe
+          path: output
+
+      - name: Run installs and report results
+        id: tests
+        run: |
+          $version = "$env:NEW_VERSION"
+          $results = @()
+          $msixPass = $true
+          $exePass = $true
+
+          # --- Test 1: Direct MSIX install (x64) ---
+          # x64 only - GitHub-hosted Windows runners are x64, so an ARM64
+          # .msix can't actually be installed here. ARM64 still needs
+          # manual Sandbox/real-hardware testing, same as before.
+          # This test matters most: a failure here means the release is
+          # cancelled outright, regardless of how Test 2 goes - a broken
+          # .msix makes the installer around it pointless either way.
+          Write-Host "=== Test 1: Direct MSIX install (x64) ==="
+          $msixPath = "output\FluentFlyout_${version}_x64.msix"
+          $certPath = "output\signing.cer"
+          try {
+            Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+            Add-AppxPackage -Path $msixPath -ErrorAction Stop
+            $pkg = Get-AppxPackage -Name "*FluentFlyout*"
+            if ($pkg) {
+              $results += "PASS|Test 1 - Direct MSIX install (x64)|Installed and verified via Get-AppxPackage ($($pkg.PackageFullName))."
+              Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue
+            } else {
+              $msixPass = $false
+              $results += "FAIL|Test 1 - Direct MSIX install (x64)|Add-AppxPackage completed but Get-AppxPackage found no match afterward."
+            }
+          } catch {
+            $msixPass = $false
+            $results += "FAIL|Test 1 - Direct MSIX install (x64)|$($_.Exception.Message)"
+          }
+
+          # --- Test 2: FluentFlyoutInstaller.exe, silent ---
+          # If this fails but Test 1 passed, the release still goes out
+          # (as a prerelease, .msix/cert only, no installer .exe attached) -
+          # a working .msix is still useful even if its wrapper isn't.
+          Write-Host "=== Test 2: FluentFlyoutInstaller.exe (silent) ==="
+          $installerLog = "$env:TEMP\installer-test.log"
+          try {
+            $proc = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
+              -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$installerLog" `
+              -Wait -PassThru -ErrorAction Stop
+            $pkg2 = Get-AppxPackage -Name "*FluentFlyout*"
+            if ($proc.ExitCode -eq 0 -and $pkg2) {
+              $results += "PASS|Test 2 - Full installer (FluentFlyout_Installer.exe)|Ran silently end-to-end and verified via Get-AppxPackage ($($pkg2.PackageFullName))."
+              Remove-AppxPackage -Package $pkg2.PackageFullName -ErrorAction SilentlyContinue
+            } else {
+              $exePass = $false
+              $logTail = if (Test-Path $installerLog) { (Get-Content $installerLog -Tail 10) -join "; " } else { "(no log produced)" }
+              $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|Exit code $($proc.ExitCode). App found after run: $([bool]$pkg2). Last log lines: $logTail"
+            }
+          } catch {
+            $exePass = $false
+            $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|$($_.Exception.Message)"
+          }
+
+          echo "msix_pass=$($msixPass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          echo "exe_pass=$($exePass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+          # --- Build the human-readable report ---
+          $overallPass = $msixPass -and $exePass
+          if (-not $msixPass) {
+            $statusLine = "MSIX FAILED - RELEASE CANCELLED"
+          } elseif (-not $exePass) {
+            $statusLine = "INSTALLER FAILED - RELEASING MSIX ONLY, AS A PRERELEASE (no Chocolatey this run)"
+          } else {
+            $statusLine = "ALL TESTS PASSED"
+          }
+          $body = "Smoke test results for $version`n$statusLine`n`n"
+          foreach ($r in $results) {
+            $parts = $r -split '\|', 3
+            $icon = if ($parts[0] -eq 'PASS') { "PASS" } else { "FAIL" }
+            $body += "[$icon] $($parts[1])`n$($parts[2])`n`n"
+          }
+          $body += "Note: ARM64 build not tested here (no ARM64 GitHub-hosted runner available) - Sandbox/manual testing still needed for that architecture.`n`n"
+          $body += "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          Write-Host $body
+
+          if ($env:NTFY_TOPIC) {
+            $headers = @{
+              "Title"    = "Smoke test results: $version"
+              "Priority" = if ($overallPass) { "low" } else { "high" }
+              "Tags"     = if ($overallPass) { "white_check_mark" } else { "x" }
+            }
+            Invoke-RestMethod -Uri "https://ntfy.sh/$env:NTFY_TOPIC" -Method Post -Body $body -Headers $headers
+          }
+
+          # Only the MSIX test blocks the release entirely. An installer
+          # failure alone does NOT fail this job - publish still needs to
+          # run (in prerelease/msix-only mode), which requires this job to
+          # report success.
+          if (-not $msixPass) {
+            exit 1
+          }
+
   publish:
     name: Publishing Release
-    needs: [check-release, sign-packages, package-installer]
+    needs: [check-release, sign-packages, package-installer, smoke-test]
     runs-on: ubuntu-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
@@ -247,6 +382,7 @@ jobs:
           path: output
 
       - name: Download installer
+        if: needs.smoke-test.outputs.exe_pass == 'true'
         uses: actions/download-artifact@v7
         with:
           name: installer-exe
@@ -257,27 +393,15 @@ jobs:
         with:
           tag_name: ${{ env.NEW_VERSION }}
           name: ${{ env.NEW_VERSION }}
+          prerelease: ${{ needs.smoke-test.outputs.exe_pass != 'true' }}
           body: |
             Unofficial automated build of FluentFlyout ${{ env.NEW_VERSION }}, rebuilt from
             https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }}
 
             See build-provenance.json for the exact source commit and build run used.
 
-            New here? Download FluentFlyout_Installer.exe below and just run it -
-            it handles everything (architecture detection, certificate trust,
-            install, cleanup) on its own.
+            ${{ needs.smoke-test.outputs.exe_pass == 'true' && 'New here? Download FluentFlyout_Installer.exe below and just run it - it handles everything (architecture detection, certificate trust, install, cleanup) on its own.' || '**Marked as a prerelease**: FluentFlyoutInstaller.exe failed automated smoke testing this build, so it is not attached. The .msix itself passed testing and is safe to use via the manual install steps in the README.' }}
           files: output/*
-
-      - name: Notify (push notification via ntfy.sh)
-        if: env.NTFY_TOPIC != ''
-        run: |
-          curl -s \
-            -H "Title: FluentFlyout Unofficial ${{ env.NEW_VERSION }} published" \
-            -H "Priority: default" \
-            -H "Tags: package" \
-            -d "New GitHub Release for ${{ env.NEW_VERSION }} is live." \
-            "https://ntfy.sh/$NTFY_TOPIC"
-
 
       - name: Update version tracker
         run: |
@@ -292,14 +416,19 @@ jobs:
             git push
           fi
 
-      # Chocolatey publish step added once the .nuspec is in place (next step)
-
   publish-chocolatey:
     name: Publishing to Chocolatey
-    needs: [check-release, sign-packages, publish]
+    needs: [check-release, sign-packages, smoke-test, publish]
+    if: needs.smoke-test.outputs.exe_pass == 'true' && needs.check-release.outputs.publish_choco == 'true'
     runs-on: windows-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+    outputs:
+      pkg_ver: ${{ steps.prep.outputs.pkg_ver }}
+      choco_attempted: ${{ steps.verify.outputs.attempted }}
+      choco_pushed: ${{ steps.verify.outputs.pushed }}
+      choco_verified: ${{ steps.verify.outputs.verified }}
+      choco_error: ${{ steps.verify.outputs.error }}
     steps:
       - uses: actions/checkout@v5
 
@@ -321,6 +450,7 @@ jobs:
           echo "cert_hash=$certHash" >> $env:GITHUB_OUTPUT
 
       - name: Prepare Chocolatey package
+        id: prep
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
           $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
@@ -332,6 +462,7 @@ jobs:
           # version with no revision segment.
           $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { $ver }
           echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
+          echo "pkg_ver=$pkgVer" >> $env:GITHUB_OUTPUT
           (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer | Set-Content chocolatey\fluentflyout-unofficial.nuspec
           (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
             -replace '__X64_SHA256__', "${{ steps.sums.outputs.x64_hash }}" `
@@ -350,7 +481,119 @@ jobs:
           name: chocolatey-package
           path: chocolatey\*.nupkg
 
+      # continue-on-error so a push failure (e.g. the 403s we've hit before)
+      # doesn't kill the job before the Verify step below can build a
+      # proper report explaining what happened.
       - name: Push to Chocolatey
+        id: push
         if: needs.check-release.outputs.publish_choco == 'true'
+        continue-on-error: true
         run: |
           choco push "chocolatey\fluentflyout-unofficial.$env:PKG_VER.nupkg" --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCO_API_KEY }}"
+
+      # A successful `choco push` only means Chocolatey ACCEPTED the
+      # package for processing - not that it's actually live. This polls
+      # Chocolatey's own API until the version genuinely appears (or a
+      # timeout is hit), so the final report reflects reality rather than
+      # just "the push command didn't error."
+      - name: Verify Chocolatey listing
+        id: verify
+        run: |
+          $attempted = "${{ needs.check-release.outputs.publish_choco }}"
+          echo "attempted=$attempted" >> $env:GITHUB_OUTPUT
+
+          if ($attempted -ne 'true') {
+            echo "pushed=false" >> $env:GITHUB_OUTPUT
+            echo "verified=false" >> $env:GITHUB_OUTPUT
+            echo "error=" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          $pushOutcome = "${{ steps.push.outcome }}"
+          if ($pushOutcome -ne 'success') {
+            echo "pushed=false" >> $env:GITHUB_OUTPUT
+            echo "verified=false" >> $env:GITHUB_OUTPUT
+            echo "error=choco push command itself failed (see the Push to Chocolatey step's log for the exact error, e.g. a 403)." >> $env:GITHUB_OUTPUT
+            exit 1
+          }
+          echo "pushed=true" >> $env:GITHUB_OUTPUT
+
+          $pkgVer = "$env:PKG_VER"
+          $maxWaitSeconds = 180
+          $intervalSeconds = 20
+          $elapsed = 0
+          $verified = $false
+          while ($elapsed -lt $maxWaitSeconds) {
+            try {
+              $uri = "https://community.chocolatey.org/api/v2/Packages(Id='fluentflyout-unofficial',Version='$pkgVer')"
+              $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
+              if ($resp) { $verified = $true; break }
+            } catch {
+              # Not listed yet, or a transient error - keep waiting.
+            }
+            Start-Sleep -Seconds $intervalSeconds
+            $elapsed += $intervalSeconds
+          }
+
+          if ($verified) {
+            echo "verified=true" >> $env:GITHUB_OUTPUT
+            echo "error=" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "verified=false" >> $env:GITHUB_OUTPUT
+            echo "error=Push command succeeded, but the package was not found on the Chocolatey feed after waiting ${maxWaitSeconds}s. It may still appear later - check the package page directly." >> $env:GITHUB_OUTPUT
+            exit 1
+          }
+
+  publish-report:
+    name: Final Publish Report
+    needs: [check-release, smoke-test, publish, publish-chocolatey]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+    steps:
+      - name: Build and send final report
+        if: env.NTFY_TOPIC != ''
+        run: |
+          MSIX_PASS="${{ needs.smoke-test.outputs.msix_pass }}"
+          GITHUB_OK="${{ needs.publish.result == 'success' }}"
+          CHOCO_ATTEMPTED="${{ needs.publish-chocolatey.outputs.choco_attempted }}"
+          CHOCO_PUSHED="${{ needs.publish-chocolatey.outputs.choco_pushed }}"
+          CHOCO_VERIFIED="${{ needs.publish-chocolatey.outputs.choco_verified }}"
+          CHOCO_ERROR="${{ needs.publish-chocolatey.outputs.choco_error }}"
+          PKG_VER="${{ needs.publish-chocolatey.outputs.pkg_ver }}"
+
+          if [ "$MSIX_PASS" = "false" ]; then
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} release cancelled"
+            PRIORITY="high"
+            TAGS="x"
+            BODY="Release for ${{ env.NEW_VERSION }} was cancelled: the .msix failed smoke testing, so nothing was published. See the smoke test report for details."
+          elif [ "$GITHUB_OK" != "true" ]; then
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} publish failed"
+            PRIORITY="high"
+            TAGS="x"
+            BODY="The GitHub Release for ${{ env.NEW_VERSION }} failed to publish. Check the Actions run for details."
+          elif [ "$CHOCO_ATTEMPTED" != "true" ]; then
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} published"
+            PRIORITY="low"
+            TAGS="package"
+            BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. (Chocolatey publishing was not enabled for this run.)"
+          elif [ "$CHOCO_VERIFIED" = "true" ]; then
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} published"
+            PRIORITY="high"
+            TAGS="package"
+            BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. Chocolatey package $PKG_VER confirmed live too."
+          else
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} publish failed"
+            PRIORITY="high"
+            TAGS="package"
+            BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. $CHOCO_ERROR"
+          fi
+
+          curl -s \
+            -H "Title: $TITLE" \
+            -H "Priority: $PRIORITY" \
+            -H "Tags: $TAGS" \
+            -d "$BODY" \
+            "https://ntfy.sh/$NTFY_TOPIC"
