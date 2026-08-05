@@ -43,7 +43,24 @@ jobs:
       - id: check
         run: |
           LATEST=$(curl -s https://api.github.com/repos/unchihugo/FluentFlyout/releases/latest | jq -r .tag_name)
-          LAST_BUILT=$(cat last_built_version.txt 2>/dev/null || echo "none")
+          # Our own most recent release IS the record of what we last built -
+          # no tracker file needed. Using /releases (list) rather than
+          # /releases/latest deliberately: /releases/latest EXCLUDES
+          # prereleases, and our degraded "installer failed" builds are
+          # published as prereleases. Ignoring those would make the pipeline
+          # rebuild the same version endlessly every 6 hours.
+          #
+          # GitHub does NOT document or guarantee a sort order for this
+          # list endpoint - there are confirmed real-world cases of it
+          # returning releases out of chronological order. So rather than
+          # trusting index [0], explicitly pick whichever entry has the
+          # latest created_at ourselves. per_page=10 gives headroom in case
+          # of any ordering weirdness; "empty or malformed response" also
+          # falls back safely to "none" rather than erroring the whole step.
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=10")
+          LAST_BUILT=$(echo "$RESPONSE" | jq -r 'if (type == "array") then (max_by(.created_at) // {}) | (.tag_name // "none") else "none" end')
+          LAST_BUILT="${LAST_BUILT:-none}"
           echo "Upstream latest: $LATEST | Last built: $LAST_BUILT | Force rebuild: ${{ github.event.inputs.force_rebuild }}"
           if [ "$LATEST" != "$LAST_BUILT" ] && [ "$LATEST" != "null" ]; then
             echo "is_new_version=true" >> "$GITHUB_OUTPUT"
@@ -373,8 +390,8 @@ jobs:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     steps:
-      - uses: actions/checkout@v5
-
+      # No checkout needed here - the release is created from downloaded
+      # artifacts, and there's no longer a tracker file to commit back.
       - name: Download signed release assets
         uses: actions/download-artifact@v7
         with:
@@ -402,19 +419,6 @@ jobs:
 
             ${{ needs.smoke-test.outputs.exe_pass == 'true' && 'New here? Download FluentFlyout_Installer.exe below and just run it - it handles everything (architecture detection, certificate trust, install, cleanup) on its own.' || '**Marked as a prerelease**: FluentFlyoutInstaller.exe failed automated smoke testing this build, so it is not attached. The .msix itself passed testing and is safe to use via the manual install steps in the README.' }}
           files: output/*
-
-      - name: Update version tracker
-        run: |
-          echo "${{ env.NEW_VERSION }}" > last_built_version.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add last_built_version.txt
-          if git diff --cached --quiet; then
-            echo "No version change to commit (likely a force-rebuild of an already-built version)."
-          else
-            git commit -m "Bump to ${{ env.NEW_VERSION }}"
-            git push
-          fi
 
   publish-chocolatey:
     name: Publishing to Chocolatey
