@@ -2,7 +2,7 @@
 
 > **Unofficial**, automated, community-maintained builds of [FluentFlyout](https://github.com/unchihugo/FluentFlyout) — rebuilt directly from upstream source on every release and republished here and via Chocolatey.
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/build.yml?branch=main)](../../actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/FluentFlyout%20Unofficial%20Publication%20Script.yml?branch=main)](../../actions)
 [![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial)](../../releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Chocolatey](https://img.shields.io/chocolatey/v/fluentflyout-unofficial)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
@@ -35,7 +35,8 @@ This repo closes that gap with a simple pipeline:
 flowchart LR
     A["🔍 Watcher<br/>Polls upstream releases<br/>every 6 hours"] --> B["🛠️ Builder<br/>Compiles from source<br/>on windows-latest<br/>(x64 + ARM64, separately)"]
     B --> C["🔏 Signer<br/>Signs each .msix<br/>with our own cert"]
-    C --> D["📦 Publisher<br/>GitHub Release +<br/>Chocolatey package"]
+    C --> D["🧪 Tester<br/>Installs the .msix and the<br/>installer .exe for real"]
+    D --> E["📦 Publisher<br/>GitHub Release +<br/>Chocolatey package"]
 ```
 
 Runs entirely on GitHub Actions. No manual steps once a new upstream tag is detected.
@@ -91,12 +92,13 @@ We encourage you to check both rather than blindly trusting any binary, includin
 
 | Stage | Trigger | What happens |
 |---|---|---|
-| **Watch** | Cron, every 6 hours | Polls the upstream GitHub API for the latest release tag; compares against the last version this repo has built. |
+| **Watch** | Cron, every 6 hours | Polls the upstream GitHub API for the latest release tag; compares against this repo's own most recent release. |
 | **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds **separate, lightweight** MSIX packages for x64 and ARM64 (framework-dependent, English-only resources — no bundled .NET runtime or unused translation files). |
 | **Sign** | After successful build | Signs **each architecture's `.msix` file individually** with this project's own self-signed certificate (see below on trust) — kept separate rather than combined, so an issue with one architecture never affects the other. |
-| **Publish** | After signing | Creates a GitHub Release here with both `.msix` files + cert + checksums, then packs and pushes an updated Chocolatey package. |
+| **Test** | After signing | Actually installs the signed `.msix` and runs the installer `.exe` silently on a real Windows machine, before anything is published. |
+| **Publish** | After testing | Creates a GitHub Release here with the `.msix` files + cert + checksums (+ the installer `.exe`, if it passed testing), then packs and pushes an updated Chocolatey package. |
 
-Full workflow source: [`.github/workflows/build.yml`](.github/workflows/build.yml)
+Full workflow source: [`.github/workflows/FluentFlyout Unofficial Publication Script.yml`](.github/workflows/FluentFlyout%20Unofficial%20Publication%20Script.yml)
 
 ### About the signing certificate
 
