@@ -4,11 +4,12 @@
 ; Flow:
 ;   1. Ask Windows for admin rights (PrivilegesRequired=admin below)
 ;   2. Check whether this machine is x64 or ARM64
-;   3. Look up the current version, then download the matching .msix +
-;      signing cert - using Inno's own built-in CreateDownloadPage, which
-;      handles the progress bar, retries, and error reporting natively.
-;      This is the same pattern used in Inno's own official example
-;      script (CodeDownloadFiles.iss).
+;   3. Ask GitHub's API for this repo's latest release to find the current
+;      version, then download the matching .msix + signing cert - using
+;      Inno's own built-in CreateDownloadPage, which handles the progress
+;      bar, retries, and error reporting natively. This is the same
+;      pattern used in Inno's own official example script
+;      (CodeDownloadFiles.iss).
 ;   4. Install the cert into Trusted People (see note below on why not
 ;      Trusted Root) - shown in a visible PowerShell window
 ;   5. Trigger the .msix install (also visible), then resolve its Start
@@ -17,8 +18,8 @@
 ;   6. Clean up the downloaded files
 ;
 ; This installer never goes out of date and never needs rebuilding when a
-; new FluentFlyout version comes out - it always reads the current
-; version straight from the repo at install time.
+; new FluentFlyout version comes out - it asks GitHub for the current
+; release version at install time, every time.
 
 [Setup]
 AppName=FluentFlyout (Unofficial Build) Installer
@@ -86,6 +87,34 @@ begin
 		'Please wait while the required files are downloaded.', nil);
 end;
 
+// Pulls a single string value out of a JSON response, e.g. Key='tag_name'
+// returns v2.13.1 from ..."tag_name": "v2.13.1"... Deliberately minimal -
+// we need exactly one field, so a full JSON parser would be overkill.
+// Tolerates whitespace around the colon, since GitHub's API returns
+// pretty-printed JSON.
+function ExtractJsonString(const Json, Key: String): String;
+var
+	P, Q: Integer;
+begin
+	Result := '';
+	P := Pos('"' + Key + '"', Json);
+	if P = 0 then
+		Exit;
+	P := P + Length(Key) + 2;
+	// Skip forward to the colon that follows the key
+	while (P <= Length(Json)) and (Json[P] <> ':') do
+		P := P + 1;
+	P := P + 1;
+	// Then to the opening quote of the value
+	while (P <= Length(Json)) and (Json[P] <> '"') do
+		P := P + 1;
+	P := P + 1;
+	Q := P;
+	while (Q <= Length(Json)) and (Json[Q] <> '"') do
+		Q := Q + 1;
+	Result := Copy(Json, P, Q - P);
+end;
+
 // Writes a PowerShell script to a temp file and runs it. ShowCmd controls
 // window visibility (SW_HIDE or SW_SHOW).
 procedure RunScript(const ScriptContent, ScriptName: String; ShowCmd: Integer);
@@ -118,12 +147,16 @@ begin
 
 		TempDir := ExpandConstant('{tmp}');
 		AppIdPath := TempDir + '\appid.txt';
-		VersionPath := TempDir + '\last_built_version.txt';
+		VersionPath := TempDir + '\latest-release.json';
 
-		// Step 3a: find the current version
+		// Step 3a: find the current version by asking GitHub directly for
+		// this repo's latest release. /releases/latest deliberately
+		// EXCLUDES prereleases - a prerelease here means the installer
+		// itself failed smoke testing for that build, so end users should
+		// land on the last known-good stable release instead.
 		try
-			DownloadTemporaryFile('https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/refs/heads/main/last_built_version.txt',
-				'last_built_version.txt', '', nil);
+			DownloadTemporaryFile('https://api.github.com/repos/tanzim2000/fluentflyout-unofficial/releases/latest',
+				'latest-release.json', '', nil);
 		except
 			MsgBox('Could not check the current FluentFlyout version. Check your internet connection and try again.' + #13#10 +
 				GetExceptionMessage, mbCriticalError, MB_OK);
@@ -131,10 +164,15 @@ begin
 		end;
 		if not LoadStringFromFile(VersionPath, VersionAnsi) then
 		begin
-			MsgBox('Could not read the downloaded version file.', mbCriticalError, MB_OK);
+			MsgBox('Could not read the version information downloaded from GitHub.', mbCriticalError, MB_OK);
 			Exit;
 		end;
-		Version := Trim(String(VersionAnsi));
+		Version := Trim(ExtractJsonString(String(VersionAnsi), 'tag_name'));
+		if Version = '' then
+		begin
+			MsgBox('Could not determine the latest FluentFlyout version from GitHub''s response.', mbCriticalError, MB_OK);
+			Exit;
+		end;
 
 		CertUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/signing.cer';
 		MsixUrl := 'https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/' + Version + '/FluentFlyout_' + Version + '_' + Arch + '.msix';
