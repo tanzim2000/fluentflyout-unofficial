@@ -19,8 +19,18 @@ jobs:
 
       - name: Determine current version
         id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = (Get-Content last_built_version.txt -Raw).Trim()
+          # Read the current version from this repo's own most recent
+          # release, rather than a tracker file. --exclude-drafts keeps
+          # prereleases in scope deliberately, so this can also repair the
+          # installer on a degraded (installer-failed) prerelease build.
+          $version = gh release list --limit 1 --exclude-drafts --json tagName --jq ".[0].tagName"
+          if (-not $version) {
+            Write-Error "No releases found on this repository. Run the full build pipeline first - this workflow only rebuilds the installer for an existing release."
+            exit 1
+          }
           echo "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Current version: $version"
 
