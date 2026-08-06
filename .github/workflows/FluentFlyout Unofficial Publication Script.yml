@@ -427,6 +427,7 @@ jobs:
     runs-on: windows-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     outputs:
       pkg_ver: ${{ steps.prep.outputs.pkg_ver }}
       choco_attempted: ${{ steps.verify.outputs.attempted }}
@@ -458,15 +459,48 @@ jobs:
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
           $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
-          # Always append this run's number as a revision segment (e.g.
-          # 2.13.1.47, or 2.13.1.47-untested) - not just while untested.
-          # This guarantees every push, official or not, gets a version
-          # Chocolatey has never seen before, so re-pushing the same
-          # upstream tag never collides with an already-published version
-          # (Chocolatey, like all NuGet feeds, treats id+version as
-          # immutable once live). It also means the version number itself
-          # points back to the exact CI run that produced it.
-          $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { "$ver.${{ github.run_number }}" }
+
+          # Find the next available revision number by asking Chocolatey
+          # itself for this package's existing versions - NOT GitHub's
+          # run number, which increments on every scheduled check
+          # (even ones that build nothing) and resets whenever this
+          # workflow file gets renamed. This way the number only ever
+          # grows when a real Chocolatey push has actually happened.
+          #
+          # This lookup is anchored to the CURRENT version specifically
+          # (via the regex below), so an older base version's existing
+          # revisions (e.g. 2.13.1.24) never leak into a new base
+          # version's count (e.g. 2.13.2 correctly starts at .1).
+          #
+          # If this call fails outright, we do NOT guess - a wrong guess
+          # risks colliding with or skipping real version history. Instead
+          # this notifies and stops the job.
+          try {
+            $resp = Invoke-WebRequest -Uri "https://community.chocolatey.org/api/v2/FindPackagesById()?id='fluentflyout-unofficial'" -UseBasicParsing -ErrorAction Stop
+            $existingVersions = [regex]::Matches($resp.Content, '<d:Version>([^<]+)</d:Version>') | ForEach-Object { $_.Groups[1].Value }
+          } catch {
+            $errMsg = $_.Exception.Message
+            Write-Error "Could not reach the Chocolatey API to determine the next version number: $errMsg"
+            if ($env:NTFY_TOPIC) {
+              Invoke-RestMethod -Uri "https://ntfy.sh/$env:NTFY_TOPIC" -Method Post -Body "Could not reach the Chocolatey API to determine the next package version. Nothing was pushed. Error: $errMsg" -Headers @{
+                "Title"    = "FluentFlyout Unofficial: Chocolatey publish aborted"
+                "Priority" = "high"
+                "Tags"     = "x"
+              }
+            }
+            exit 1
+          }
+          $pattern = '^' + [regex]::Escape($ver) + '\.(\d+)(-untested)?$'
+          $maxRevision = 0
+          foreach ($v in $existingVersions) {
+            if ($v -match $pattern) {
+              $rev = [int]$matches[1]
+              if ($rev -gt $maxRevision) { $maxRevision = $rev }
+            }
+          }
+          $nextRevision = $maxRevision + 1
+
+          $pkgVer = if ($markUntested -eq 'true') { "$ver.$nextRevision-untested" } else { "$ver.$nextRevision" }
           echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
           echo "pkg_ver=$pkgVer" >> $env:GITHUB_OUTPUT
           (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer | Set-Content chocolatey\fluentflyout-unofficial.nuspec
@@ -564,8 +598,7 @@ jobs:
         run: |
           MSIX_PASS="${{ needs.smoke-test.outputs.msix_pass }}"
           GITHUB_OK="${{ needs.publish.result == 'success' }}"
-          CHOCO_ATTEMPTED="${{ needs.publish-chocolatey.outputs.choco_attempted }}"
-          CHOCO_PUSHED="${{ needs.publish-chocolatey.outputs.choco_pushed }}"
+          CHOCO_RESULT="${{ needs.publish-chocolatey.result }}"
           CHOCO_VERIFIED="${{ needs.publish-chocolatey.outputs.choco_verified }}"
           CHOCO_ERROR="${{ needs.publish-chocolatey.outputs.choco_error }}"
           PKG_VER="${{ needs.publish-chocolatey.outputs.pkg_ver }}"
@@ -580,7 +613,7 @@ jobs:
             PRIORITY="high"
             TAGS="x"
             BODY="The GitHub Release for ${{ env.NEW_VERSION }} failed to publish. Check the Actions run for details."
-          elif [ "$CHOCO_ATTEMPTED" != "true" ]; then
+          elif [ "$CHOCO_RESULT" = "skipped" ]; then
             TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} published"
             PRIORITY="low"
             TAGS="package"
@@ -594,7 +627,11 @@ jobs:
             TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} publish failed"
             PRIORITY="high"
             TAGS="package"
-            BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. $CHOCO_ERROR"
+            if [ -n "$CHOCO_ERROR" ]; then
+              BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. $CHOCO_ERROR"
+            else
+              BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. Check the Actions run for details."
+            fi
           fi
 
           curl -s \
