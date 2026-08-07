@@ -9,27 +9,11 @@
 
 ---
 
-## ⚠️ Disclaimer & Attribution
-
-This project is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author ([@unchihugo](https://github.com/unchihugo)). All credit for FluentFlyout's design, functionality, and code belongs to the upstream project and its contributors.
-
-This repository exists solely to provide **free, automatically-built binaries** for people who want to install FluentFlyout without going through the Microsoft Store, at times when the upstream project doesn't attach compiled installers to a given release.
-
-FluentFlyout is licensed under the **GNU General Public License v3.0**. This project, as a derivative distribution of that work, is licensed under the same terms — see [`LICENSE`](LICENSE). In accordance with GPLv3:
-
-- Every build here is clearly marked as a modified/rebuilt redistribution, not the original.
-- Full corresponding source is always available — either at the upstream repo directly, or in this repo's build logs, which pin the exact commit/tag used.
-- No additional restrictions are placed on top of GPLv3. You are free to use, modify, and redistribute these builds under the same license.
-
-**Please consider supporting the original developer** — via the [Microsoft Store version](https://apps.microsoft.com/detail/9n45nsm4tnbp) (small optional paid unlock) or [GitHub Sponsors](https://github.com/sponsors/unchihugo), if the app is useful to you.
-
----
-
 ## What this is
 
-FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11. The upstream project publishes to the Microsoft Store and (inconsistently) to GitHub Releases — some tags ship a signed `.msixbundle`, others only include GitHub's auto-generated source archives.
+FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11. The only official way to get a ready-to-install build is the Microsoft Store, where the full feature set sits behind a small paid unlock. The project's own GitHub page provides source code only — no compiled installer.
 
-This repo closes that gap with a simple pipeline:
+This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source, with every feature already unlocked and no payment required, and keeps it install-ready here and on Chocolatey.
 
 ```mermaid
 flowchart LR
@@ -48,12 +32,12 @@ Runs entirely on GitHub Actions. No manual steps once a new upstream tag is dete
 ### Option 1 — One-Click Installer (easiest)
 
 1. Go to the [Releases page](../../releases/latest) and download `FluentFlyout_Installer.exe`.
-2. Run it. Windows will likely show a **"Windows protected your PC"** SmartScreen warning first — click **More info → Run anyway**. This is expected and separate from certificate trust; it shows up because the installer itself isn't signed yet, not because anything is wrong.
+2. Run it. Windows will likely show a **"Windows protected your PC"** SmartScreen warning first — click **More info → Run anyway**. This shows up because the installer itself isn't signed yet, not because anything is wrong.
 3. Approve the admin (UAC) prompt that follows.
 
 That's it — the installer detects your CPU architecture, downloads the right files, trusts the certificate, and installs the app automatically. No manual certificate steps.
 
-> Note: this installer doesn't auto-update. Re-download and re-run it whenever a new version comes out, or switch to Option 2 below if you'd rather updates happen on their own.
+> Note: this installer doesn't auto-update. Re-download and re-run it whenever a new version comes out, or use Option 2 below if you'd rather updates happen on their own.
 
 ### Option 2 — Chocolatey (auto-updating)
 
@@ -88,6 +72,22 @@ We encourage you to check both rather than blindly trusting any binary, includin
 
 ---
 
+## Disclaimer & Attribution
+
+This project is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author ([@unchihugo](https://github.com/unchihugo)). All credit for FluentFlyout's design, functionality, and code belongs to the upstream project and its contributors.
+
+This repository exists solely to provide **free, automatically-built binaries** — nothing here is hidden, obfuscated, or different from what the public source code does.
+
+FluentFlyout is licensed under the **GNU General Public License v3.0**. This project, as a derivative distribution of that work, is licensed under the same terms — see [`LICENSE`](LICENSE). In accordance with GPLv3:
+
+- Every build here is clearly marked as a modified/rebuilt redistribution, not the original.
+- Full corresponding source is always available — either at the upstream repo directly, or in this repo's build logs, which pin the exact commit/tag used.
+- No additional restrictions are placed on top of GPLv3. You are free to use, modify, and redistribute these builds under the same license.
+
+**Please consider supporting the original developer** — via the [Microsoft Store version](https://apps.microsoft.com/detail/9n45nsm4tnbp) (small optional paid unlock) or [GitHub Sponsors](https://github.com/sponsors/unchihugo), if the app is useful to you and you're able to.
+
+---
+
 ## How the automation works
 
 | Stage | Trigger | What happens |
@@ -116,19 +116,13 @@ Nothing here is installed silently or without your say-so — you still have to 
 - That said, you are trusting *this project's maintainer* to keep it that way. If you'd rather not trust anyone but the original developer, the Microsoft Store version remains the safest option, since Microsoft itself reviews and signs it.
 
 **Why not just use the Microsoft Store version?**
-You absolutely can, and for most people it's still the easiest choice. This project exists specifically for people who:
-- Don't want to pay for the optional Store unlock, and
-- Don't know how to code, so manually downloading files, trusting certificates, and reinstalling every update themselves (the normal "free" GitHub path) feels intimidating or fiddly.
-
-This repo automates that free path for you — one install command, and updates happen on their own, without needing to touch a certificate or a `.msixbundle` file yourself.
+You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't or don't want to pay for the Store unlock — GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
 
 **Will this break if upstream changes their build process?**
 Possibly — if the original project restructures its code significantly, the automated build here may need updates too. If a release ever fails to appear, it usually means this is being fixed. Issues/PRs welcome if you notice a gap.
 
-**Does this affect the original developer's revenue? Am I unlocking the paid Store features this way?**
-No, and no — this is an important distinction. The extra features unlocked by the small Store payment aren't "hidden" in the code waiting to be switched on; the app checks with Microsoft's Store servers to confirm you actually paid, and a build installed outside the Store has no way to pass that check. This project doesn't touch, remove, or bypass that check in any way — doing so would go against the spirit of supporting the developer, even though the app's license would technically permit modifying the code.
-
-In short: this repo gives you exactly the same free feature set the original developer already offers for free on their own GitHub page — just packaged in a way that's easier to install and keep updated. Nothing paywalled is unlocked, and nobody who would've paid is being given a reason not to.
+**Does this unlock the paid Store features? Does that hurt the original developer?**
+Yes, it unlocks them — that's the actual point of this project. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means unchihugo can't legally lock any feature behind payment in the source itself — the Store payment is effectively an optional, forced-feeling way of asking for a donation. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think everyone should have to pay to use free, open-source software, especially given how differently $5 lands depending on where in the world you live. Building from source yourself would get you the exact same result — this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support unchihugo's work, please consider it.
 
 ---
 
