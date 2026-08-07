@@ -1,0 +1,104 @@
+name: Manual Chocolatey Push
+
+# Manual trigger only. Use this ONLY for a manual resubmit - most commonly,
+# fixing a package that failed Chocolatey moderation and needs to be
+# re-uploaded as the SAME version number (Chocolatey's own rules require
+# the exact same version during moderation review). The normal automated
+# pipeline can't do this: publish-chocolatey always looks up the highest
+# existing version and pushes the next number up, so it would create a
+# NEW version instead of replacing the rejected one.
+#
+# This workflow does none of the app-building or signing - it assumes the
+# .msix files and signing.cer are already sitting in a GitHub Release (the
+# main pipeline's job), and only handles the Chocolatey packaging step:
+# download those files, compute their checksums, fill in the templates
+# from whatever's currently committed in chocolatey/, then pack and push.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact Chocolatey version to push, e.g. 2.13.1.4 or 2.13.1.4-untested'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  manual-push:
+    name: Manually Pushing ${{ inputs.version }} to Chocolatey
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Derive app version and download release files
+        id: prep
+        run: |
+          $pkgVersion = "${{ inputs.version }}"
+          # Same stripping logic chocolateyinstall.ps1 itself uses: drop a
+          # trailing "-untested" tag, then drop a trailing ".NN" revision
+          # segment. "2.13.1.4-untested" -> "2.13.1"   "2.13.1.4" -> "2.13.1"
+          $appVersion = $pkgVersion -replace '-untested$', '' -replace '\.\d+$', ''
+          Write-Host "Chocolatey version to push: $pkgVersion"
+          Write-Host "Corresponding app/GitHub release version: v$appVersion"
+
+          $repoBase = "https://github.com/${{ github.repository }}/releases/download/v$appVersion"
+          $files = @{
+            "x64.msix"     = "FluentFlyout_v${appVersion}_x64.msix"
+            "arm64.msix"   = "FluentFlyout_v${appVersion}_ARM64.msix"
+            "signing.cer"  = "signing.cer"
+          }
+
+          New-Item -ItemType Directory -Path release-files | Out-Null
+          foreach ($localName in $files.Keys) {
+            $remoteName = $files[$localName]
+            $url = "$repoBase/$remoteName"
+            $dest = "release-files\$localName"
+            Write-Host "Downloading $remoteName..."
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
+            } catch {
+              Write-Error "Failed to download $url - is there definitely a GitHub Release tagged v$appVersion with this file attached? $($_.Exception.Message)"
+              exit 1
+            }
+          }
+
+          echo "pkg_version=$pkgVersion" >> $env:GITHUB_OUTPUT
+          echo "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Compute checksums
+        id: sums
+        run: |
+          $x64Hash = (Get-FileHash -Path "release-files\x64.msix" -Algorithm SHA256).Hash
+          $armHash = (Get-FileHash -Path "release-files\arm64.msix" -Algorithm SHA256).Hash
+          $certHash = (Get-FileHash -Path "release-files\signing.cer" -Algorithm SHA256).Hash
+          Write-Host "x64:   $x64Hash"
+          Write-Host "ARM64: $armHash"
+          Write-Host "cert:  $certHash"
+          echo "x64_hash=$x64Hash" >> $env:GITHUB_OUTPUT
+          echo "arm_hash=$armHash" >> $env:GITHUB_OUTPUT
+          echo "cert_hash=$certHash" >> $env:GITHUB_OUTPUT
+
+      - name: Fill in package templates
+        run: |
+          $pkgVer = "${{ steps.prep.outputs.pkg_version }}"
+          (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer |
+            Set-Content chocolatey\fluentflyout-unofficial.nuspec
+          (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
+            -replace '__X64_SHA256__', "${{ steps.sums.outputs.x64_hash }}" `
+            -replace '__ARM64_SHA256__', "${{ steps.sums.outputs.arm_hash }}" `
+            -replace '__CERT_SHA256__', "${{ steps.sums.outputs.cert_hash }}" |
+            Set-Content chocolatey\tools\chocolateyinstall.ps1
+
+      - name: Pack
+        run: |
+          choco pack chocolatey\fluentflyout-unofficial.nuspec --outputdirectory chocolatey
+
+      - name: Push to Chocolatey
+        run: |
+          choco push "chocolatey\fluentflyout-unofficial.${{ steps.prep.outputs.pkg_version }}.nupkg" --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCO_API_KEY }}"
+
+      - name: Summary
+        run: |
+          Write-Host "Pushed ${{ steps.prep.outputs.pkg_version }} to Chocolatey."
+          Write-Host "Check https://community.chocolatey.org/packages/fluentflyout-unofficial/${{ steps.prep.outputs.pkg_version }} to confirm it shows up."
