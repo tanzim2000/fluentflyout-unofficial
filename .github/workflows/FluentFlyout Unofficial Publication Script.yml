@@ -587,7 +587,11 @@ jobs:
   publish-report:
     name: Final Publish Report
     needs: [check-release, smoke-test, publish, publish-chocolatey]
-    if: always()
+    # Only report when a build was actually attempted. Scheduled runs that
+    # find no new upstream version skip everything downstream, and without
+    # this gate they'd wrongly report "publish failed" (with a blank
+    # version, since none was ever set) every few hours.
+    if: always() && needs.check-release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
