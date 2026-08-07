@@ -19,13 +19,13 @@
     <description>
 **Unofficial**, automatically-rebuilt binaries of [FluentFlyout](https://github.com/unchihugo/FluentFlyout), a free, open-source (GPLv3) Fluent 2-styled media flyout app for Windows 11.
 
-This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. It exists to provide an easy, auto-updating install path for the same free, open-source build already available on FluentFlyout's own GitHub page — just packaged for Chocolatey.
+This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. FluentFlyout's GitHub page only provides the source code — no compiled installer, and no free download of the full app. The only official way to get a ready-to-install build is the Microsoft Store, where the full feature set sits behind a paid unlock. **This package removes that paywall entirely** — it's a free, pre-built version with every feature already unlocked, kept auto-updating, with nothing to compile yourself and nothing to pay.
 
 Supports both **x64** and **ARM64** — this script automatically detects your system's architecture and downloads the matching build.
 
 Every build here is compiled directly from upstream's public source by an automated pipeline, signed with this project's own certificate (not upstream's), and traceable back to the exact source commit used. Full details, source, and build provenance: https://github.com/tanzim2000/fluentflyout-unofficial
 
-No paywalled features are unlocked by this package — it provides the same free feature set upstream already offers on their own GitHub releases.
+Building from source yourself would get you the same result — this package just saves you that step, while respecting GPLv3 and crediting the original author for the work.
     </description>
     <releaseNotes>https://github.com/tanzim2000/fluentflyout-unofficial/releases</releaseNotes>
   </metadata>
