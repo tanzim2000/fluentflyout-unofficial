@@ -6,8 +6,9 @@
     <title>FluentFlyout (Unofficial Build)</title>
     <authors>unchihugo (original author), tanzim2000 (unofficial packaging)</authors>
     <owners>tanzim2000</owners>
+    <copyright>Copyright © unchihugo (FluentFlyout). Packaging © tanzim2000.</copyright>
     <projectUrl>https://github.com/tanzim2000/fluentflyout-unofficial</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/tanzim2000/fluentflyout-unofficial/main/chocolatey/icon.png</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/tanzim2000/fluentflyout-unofficial@main/chocolatey/icon.png</iconUrl>
     <licenseUrl>https://github.com/tanzim2000/fluentflyout-unofficial/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <packageSourceUrl>https://github.com/tanzim2000/fluentflyout-unofficial/tree/main/chocolatey</packageSourceUrl>
