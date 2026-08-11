@@ -17,10 +17,10 @@ This repo closes that gap: it automatically rebuilds FluentFlyout straight from 
 
 ```mermaid
 flowchart LR
-    A["🔍 Watcher<br/>Polls upstream releases<br/>every 6 hours"] --> B["🛠️ Builder<br/>Compiles from source<br/>on windows-latest<br/>(x64 + ARM64, separately)"]
-    B --> C["🔏 Signer<br/>Signs each .msix<br/>with our own cert"]
-    C --> D["🧪 Tester<br/>Installs the .msix and the<br/>installer .exe for real"]
-    D --> E["📦 Publisher<br/>GitHub Release +<br/>Chocolatey package"]
+    A["🔍 Watcher: Polls upstream releases every 6 hours"] --> B["🛠️ Builder: Compiles from source on windows-latest (x64 + ARM64, separately)"]
+    B --> C["🔏 Signer: Signs each .msix with our own cert"]
+    C --> D["🧪 Tester: Installs the .msix and the installer .exe for real"]
+    D --> E["📦 Publisher: GitHub Release + Chocolatey package"]
 ```
 
 Runs entirely on GitHub Actions. No manual steps once a new upstream tag is detected.
