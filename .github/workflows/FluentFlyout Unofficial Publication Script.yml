@@ -1,8 +1,44 @@
+# ==============================================================================
+# FluentFlyout Unofficial - Build & Publish Pipeline
+# ==============================================================================
+#
+# Watches upstream (unchihugo/FluentFlyout) for new releases, rebuilds them from
+# source, signs them with this project's own certificate, verifies they install
+# on a real machine, then publishes to GitHub Releases and Chocolatey.
+#
+# PIPELINE STAGES
+#   check-release ──> build (x64 + ARM64) ──> sign-packages ──> package-installer
+#                                                     │                  │
+#                                                     └──> smoke-test <──┘
+#                                                              │
+#                 publish-report <── publish-chocolatey <── publish
+#
+# FAILURE BEHAVIOUR
+#   - Any stage before smoke-test fails    -> nothing published; retried next cron run.
+#   - smoke-test .msix fails               -> release cancelled entirely.
+#   - smoke-test installer .exe fails only -> release published as a prerelease with
+#                                             the .msix only; Chocolatey skipped.
+#   - publish-report always runs and sends a single summary notification.
+#
+# STATE MODEL
+#   No state is stored in the repo. "What did we last build?" is answered by this
+#   repository's own GitHub Releases, so the pipeline is idempotent and self-healing:
+#   a failed run simply leaves the previous release as the newest, and the next
+#   scheduled run retries the same version.
+#
+# REQUIRED SECRETS
+#   SIGNING_CERT_PFX_BASE64  Base64-encoded .pfx used to sign the .msix packages.
+#   CERT_PASSWORD            Password for the above .pfx.
+#   CHOCO_API_KEY            Chocolatey community feed push key.
+#   NTFY_TOPIC               ntfy.sh topic for notifications. Optional; all
+#                            notification steps are skipped when unset.
+# ==============================================================================
+
 name: Build & Publish FluentFlyout Unofficial
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       force_rebuild:
@@ -25,10 +61,20 @@ on:
 permissions:
   contents: write
 
+# Every job sets an explicit timeout-minutes. GitHub's default job limit is six
+# hours, which turns a hung step into a silent, day-long stall before anything
+# reports failure. The limits below are sized well above normal runtimes so they
+# only trigger on genuine hangs.
+
 jobs:
+  # ----------------------------------------------------------------------------
+  # Determines whether there is a new upstream version worth building, and
+  # resolves the run's options. Every downstream job is gated on should_build.
+  # ----------------------------------------------------------------------------
   check-release:
     name: Checking For New Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     outputs:
@@ -43,30 +89,36 @@ jobs:
       - id: check
         run: |
           LATEST=$(curl -s https://api.github.com/repos/unchihugo/FluentFlyout/releases/latest | jq -r .tag_name)
-          # Our own most recent release IS the record of what we last built -
-          # no tracker file needed. Using /releases (list) rather than
-          # /releases/latest deliberately: /releases/latest EXCLUDES
-          # prereleases, and our degraded "installer failed" builds are
-          # published as prereleases. Ignoring those would make the pipeline
-          # rebuild the same version endlessly every 6 hours.
+
+          # This repository's own newest release is the record of what was last
+          # built. Two deliberate choices here:
           #
-          # GitHub does NOT document or guarantee a sort order for this
-          # list endpoint - there are confirmed real-world cases of it
-          # returning releases out of chronological order. So rather than
-          # trusting index [0], explicitly pick whichever entry has the
-          # latest created_at ourselves. per_page=10 gives headroom in case
-          # of any ordering weirdness; "empty or malformed response" also
-          # falls back safely to "none" rather than erroring the whole step.
+          #   1. Uses /releases (list) rather than /releases/latest. The /latest
+          #      endpoint excludes prereleases, and degraded builds are published
+          #      as prereleases - ignoring them would make the pipeline rebuild
+          #      the same version on every cron tick.
+          #   2. Selects by max created_at rather than trusting index [0]. The
+          #      list endpoint's ordering is not documented or guaranteed.
+          #
+          # A malformed or empty response falls back to "none", which reads as
+          # "nothing built yet" and allows the build to proceed.
           RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases?per_page=10")
           LAST_BUILT=$(echo "$RESPONSE" | jq -r 'if (type == "array") then (max_by(.created_at) // {}) | (.tag_name // "none") else "none" end')
           LAST_BUILT="${LAST_BUILT:-none}"
+
           echo "Upstream latest: $LATEST | Last built: $LAST_BUILT | Force rebuild: ${{ github.event.inputs.force_rebuild }}"
+
+          # is_new_version tracks a genuine upstream change and drives the
+          # notification below. should_build additionally honours force_rebuild,
+          # so manual re-runs of an already-built version build without
+          # re-notifying.
           if [ "$LATEST" != "$LAST_BUILT" ] && [ "$LATEST" != "null" ]; then
             echo "is_new_version=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_new_version=false" >> "$GITHUB_OUTPUT"
           fi
+
           if { [ "$LATEST" != "$LAST_BUILT" ] || [ "${{ github.event.inputs.force_rebuild }}" == "true" ]; } && [ "$LATEST" != "null" ]; then
             echo "new_version=$LATEST" >> "$GITHUB_OUTPUT"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
@@ -74,10 +126,6 @@ jobs:
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # is_new_version (set above) is true only when the upstream tag
-      # actually changed - unlike should_build, it stays false on a
-      # manual force_rebuild of a version already built, so this doesn't
-      # fire on every test re-run.
       - name: Notify (new release detected)
         if: steps.check.outputs.is_new_version == 'true' && env.NTFY_TOPIC != ''
         run: |
@@ -88,8 +136,8 @@ jobs:
             -d "Upstream published ${{ steps.check.outputs.new_version }}. Starting the build now." \
             "https://ntfy.sh/$NTFY_TOPIC"
 
-      # Resolves the checkbox options for both manual runs (uses whatever was checked)
-      # and scheduled/automatic runs (no inputs exist, so the defaults below apply).
+      # Scheduled runs carry no inputs, so github.event.inputs.* is empty. This
+      # normalises both trigger types into a single set of outputs.
       - id: options
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
@@ -102,11 +150,17 @@ jobs:
             echo "mark_untested=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # ----------------------------------------------------------------------------
+  # Compiles upstream's source at the target tag, once per architecture.
+  # Packages are built unsigned here; signing happens in the next job so both
+  # architectures are signed by a single consistent step.
+  # ----------------------------------------------------------------------------
   build:
     name: Building ${{ matrix.platform }} Package
     needs: check-release
     if: needs.check-release.outputs.should_build == 'true'
     runs-on: windows-latest
+    timeout-minutes: 45
     strategy:
       matrix:
         platform: [x64, ARM64]
@@ -120,18 +174,18 @@ jobs:
           ref: ${{ env.NEW_VERSION }}
           path: upstream
 
+      # The manifest Publisher must match the subject of the signing certificate
+      # used in sign-packages, or Windows rejects the package at install time.
       - name: Patch package identity to match our signing certificate
         run: |
           $manifest = "upstream\FluentFlyoutMSIX\Package.appxmanifest"
           (Get-Content $manifest -Raw) -replace 'Publisher="[^"]*"', 'Publisher="CN=tanzim2000, O=FluentFlyout Unofficial Builds"' | Set-Content $manifest
           Select-String -Path $manifest -Pattern 'Publisher='
 
+      # Adds a single attribution line to the About page, beside the existing
+      # upstream GitHub link. Upstream's own credits are left untouched.
       - name: Patch About page with unofficial build attribution
         run: |
-          # Adds a single line crediting this repo as the distributor, right
-          # next to the existing GitHub link at the bottom of the About page.
-          # Leaves everything else on the page - including upstream's own
-          # Developers/Translators credits - completely untouched.
           $aboutXaml = "upstream\FluentFlyoutWPF\Pages\AboutPage.xaml"
           $anchor = '                <ui:Anchor Appearance="Transparent" Content="{DynamicResource GitHubRepoLink}" Icon="{ui:SymbolIcon Open24}" NavigateUri="https://github.com/unchihugo/FluentFlyout" Margin="12,0,0,0" />'
           $newLine = '                <ui:Anchor Appearance="Transparent" Content="Unofficial build by tanzim2000 and Claude" Icon="{ui:SymbolIcon ArrowDownload24}" NavigateUri="https://github.com/tanzim2000/fluentflyout-unofficial" Margin="12,0,0,0" />'
@@ -139,13 +193,12 @@ jobs:
           $before = Get-Content $aboutXaml -Raw
           $after = $before -replace [regex]::Escape($anchor), "$anchor`n$newLine"
 
-          # HARD REQUIREMENT: if the anchor text wasn't found (e.g. upstream
-          # reformatted this file), -replace silently does nothing and the
-          # build would otherwise succeed WITHOUT the credit line ever
-          # appearing - with no error, no warning, nothing in the logs.
-          # That's not acceptable: no credit line means no build, full stop.
+          # -replace is a no-op when the pattern does not match, so an upstream
+          # reformat of this file would otherwise produce a successful build with
+          # the attribution silently missing. Treated as fatal: if the anchor
+          # cannot be found, update $anchor to match the file's current content.
           if ($after -eq $before) {
-            Write-Error "FATAL: Could not insert the credit line into AboutPage.xaml - the expected anchor text was not found (upstream likely changed this file). Refusing to build without credit. Update the `$anchor value in build.yml to match the file's current content."
+            Write-Error "FATAL: Could not insert the credit line into AboutPage.xaml - the expected anchor text was not found (upstream likely changed this file). Refusing to build without credit. Update the `$anchor value in this workflow to match the file's current content."
             exit 1
           }
 
@@ -157,6 +210,12 @@ jobs:
       - name: Restore for ${{ matrix.platform }}
         run: msbuild upstream\FluentFlyout.sln /t:Restore /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
+      # Build flags, and why:
+      #   AppxBundle=Never              one .msix per architecture, not a bundle
+      #   UapAppxPackageBuildMode       sideload target; this is not a Store submission
+      #   AppxPackageSigningEnabled     signing is handled centrally in sign-packages
+      #   SelfContained=false           framework-dependent; keeps the package small
+      #   SatelliteResourceLanguages    English only; drops unused translation assets
       - name: Build ${{ matrix.platform }} package (unbundled)
         run: |
           msbuild upstream\FluentFlyout.sln `
@@ -176,10 +235,18 @@ jobs:
           name: package-${{ matrix.platform }}
           path: output\${{ matrix.platform }}\**\*.msix
 
+  # ----------------------------------------------------------------------------
+  # Signs both architectures, records checksums, and emits build provenance.
+  # Produces the "signed-release" artifact consumed by every later job.
+  # ----------------------------------------------------------------------------
   sign-packages:
     name: Signing Packages
     needs: [check-release, build]
     runs-on: windows-latest
+    # Signing normally completes in seconds. signtool.exe can block indefinitely
+    # in some failure modes rather than exiting with an error, so this limit is
+    # deliberately tight.
+    timeout-minutes: 20
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
     steps:
@@ -195,6 +262,7 @@ jobs:
           path: packages
           merge-multiple: false
 
+      # Multiple Windows SDK versions may be installed; take the newest.
       - name: Locate signtool
         id: tools
         run: |
@@ -206,26 +274,53 @@ jobs:
           $bytes = [Convert]::FromBase64String("${{ secrets.SIGNING_CERT_PFX_BASE64 }}")
           [IO.File]::WriteAllBytes("$PWD\signing.pfx", $bytes)
 
+      # Each architecture is signed independently so a problem with one cannot
+      # affect the other. Progress is logged per architecture, and signtool's
+      # exit code is checked explicitly, because a failure inside the loop would
+      # otherwise be easy to miss in the job log.
       - name: Sign each architecture's package separately
         run: |
           New-Item -ItemType Directory -Path output -Force | Out-Null
           $shaLines = @()
+
           foreach ($platform in @("x64", "ARM64")) {
+            Write-Host "=== Signing $platform ==="
+
             $msix = Get-ChildItem -Recurse -Path "packages\package-$platform" -Filter *.msix | Select-Object -First 1
+            if (-not $msix) {
+              Write-Error "No .msix found for $platform - the build job may not have produced one."
+              exit 1
+            }
+            Write-Host "Found: $($msix.FullName)"
+
             $destName = "FluentFlyout_${env:NEW_VERSION}_$platform.msix"
             Copy-Item $msix.FullName "output\$destName"
+
+            Write-Host "Invoking signtool for $destName..."
             & "${{ steps.tools.outputs.signtool }}" sign /f signing.pfx /p "${{ secrets.CERT_PASSWORD }}" /fd SHA256 "output\$destName"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "signtool failed for $destName with exit code $LASTEXITCODE."
+              exit 1
+            }
+            Write-Host "Signed $destName successfully."
+
             $hash = (Get-FileHash "output\$destName" -Algorithm SHA256).Hash
             $shaLines += "$hash  $destName"
           }
-          # The cert also needs a recorded checksum - Chocolatey's package
-          # validator requires every remote download in an install script
-          # to be checksum-verified, including signing.cer.
+
+          # signing.cer is checksummed alongside the packages because the
+          # Chocolatey install script downloads it at install time, and
+          # Chocolatey's package validator requires every remote download to be
+          # checksum-verified.
           Copy-Item self\signing.cer output\signing.cer
           $certHash = (Get-FileHash "output\signing.cer" -Algorithm SHA256).Hash
           $shaLines += "$certHash  signing.cer"
-          $shaLines | Out-File output\SHA256SUMS.txt -Encoding ascii
 
+          $shaLines | Out-File output\SHA256SUMS.txt -Encoding ascii
+          Write-Host "All signing complete."
+
+      # Lets any consumer trace a published binary back to the exact source
+      # commit and workflow run that produced it.
       - name: Generate provenance
         run: |
           @{
@@ -241,10 +336,17 @@ jobs:
           name: signed-release
           path: output\*
 
+  # ----------------------------------------------------------------------------
+  # Builds the standalone one-click installer. The installer resolves the current
+  # version from this repository's releases at runtime, so it does not need to be
+  # rebuilt for each new version - but it is rebuilt here to keep it in sync with
+  # any changes to the .iss script.
+  # ----------------------------------------------------------------------------
   package-installer:
     name: Building Installer
     needs: [check-release, sign-packages]
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -261,10 +363,20 @@ jobs:
           name: installer-exe
           path: installer\Output\FluentFlyout_Installer.exe
 
+  # ----------------------------------------------------------------------------
+  # Installs both deliverables on a real Windows runner before anything is
+  # published. This job's two outputs determine what the release looks like:
+  #
+  #   msix_pass=false  -> job fails; release is cancelled entirely.
+  #   exe_pass=false   -> job still succeeds; publish degrades to a prerelease
+  #                       containing the .msix only, and Chocolatey is skipped.
+  # ----------------------------------------------------------------------------
   smoke-test:
     name: Smoke Testing Build
     needs: [check-release, sign-packages, package-installer]
     runs-on: windows-latest
+    # Installs an ~85 MB package twice and blocks on the installer process.
+    timeout-minutes: 30
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
@@ -292,13 +404,14 @@ jobs:
           $msixPass = $true
           $exePass = $true
 
-          # --- Test 1: Direct MSIX install (x64) ---
-          # x64 only - GitHub-hosted Windows runners are x64, so an ARM64
-          # .msix can't actually be installed here. ARM64 still needs
-          # manual Sandbox/real-hardware testing, same as before.
-          # This test matters most: a failure here means the release is
-          # cancelled outright, regardless of how Test 2 goes - a broken
-          # .msix makes the installer around it pointless either way.
+          # Test 1 - direct .msix install.
+          #
+          # x64 only: GitHub-hosted Windows runners are x64, so the ARM64 package
+          # cannot be installed here. ARM64 remains covered by manual testing.
+          #
+          # The certificate is imported into TrustedPeople rather than Root: the
+          # signing certificate is a self-signed leaf, not a CA, and the AppX
+          # validator only honours leaf certificates from TrustedPeople.
           Write-Host "=== Test 1: Direct MSIX install (x64) ==="
           $msixPath = "output\FluentFlyout_${version}_x64.msix"
           $certPath = "output\signing.cer"
@@ -318,10 +431,9 @@ jobs:
             $results += "FAIL|Test 1 - Direct MSIX install (x64)|$($_.Exception.Message)"
           }
 
-          # --- Test 2: FluentFlyoutInstaller.exe, silent ---
-          # If this fails but Test 1 passed, the release still goes out
-          # (as a prerelease, .msix/cert only, no installer .exe attached) -
-          # a working .msix is still useful even if its wrapper isn't.
+          # Test 2 - the installer .exe, end to end. This exercises the full
+          # real-world path: version lookup, download, checksum verification,
+          # certificate trust, install, and launch-target resolution.
           Write-Host "=== Test 2: FluentFlyoutInstaller.exe (silent) ==="
           $installerLog = "$env:TEMP\installer-test.log"
           try {
@@ -345,7 +457,7 @@ jobs:
           echo "msix_pass=$($msixPass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           echo "exe_pass=$($exePass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
-          # --- Build the human-readable report ---
+          # Human-readable report, sent to ntfy and also written to the job log.
           $overallPass = $msixPass -and $exePass
           if (-not $msixPass) {
             $statusLine = "MSIX FAILED - RELEASE CANCELLED"
@@ -354,6 +466,7 @@ jobs:
           } else {
             $statusLine = "ALL TESTS PASSED"
           }
+
           $body = "Smoke test results for $version`n$statusLine`n`n"
           foreach ($r in $results) {
             $parts = $r -split '\|', 3
@@ -374,30 +487,35 @@ jobs:
             Invoke-RestMethod -Uri "https://ntfy.sh/$env:NTFY_TOPIC" -Method Post -Body $body -Headers $headers
           }
 
-          # Only the MSIX test blocks the release entirely. An installer
-          # failure alone does NOT fail this job - publish still needs to
-          # run (in prerelease/msix-only mode), which requires this job to
-          # report success.
+          # Only a .msix failure aborts the pipeline. An installer-only failure
+          # must leave this job successful so publish can still run in degraded
+          # (prerelease) mode.
           if (-not $msixPass) {
             exit 1
           }
 
+  # ----------------------------------------------------------------------------
+  # Creates the GitHub Release. The release tag always mirrors the upstream tag
+  # exactly; Chocolatey versioning is handled separately in the next job.
+  # ----------------------------------------------------------------------------
   publish:
     name: Publishing Release
     needs: [check-release, sign-packages, package-installer, smoke-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     steps:
-      # No checkout needed here - the release is created from downloaded
-      # artifacts, and there's no longer a tracker file to commit back.
+      # No checkout required: the release is assembled entirely from artifacts.
       - name: Download signed release assets
         uses: actions/download-artifact@v7
         with:
           name: signed-release
           path: output
 
+      # Omitted when the installer failed smoke testing, so a known-bad binary
+      # is never attached to a release.
       - name: Download installer
         if: needs.smoke-test.outputs.exe_pass == 'true'
         uses: actions/download-artifact@v7
@@ -405,6 +523,8 @@ jobs:
           name: installer-exe
           path: output
 
+      # Release notes link to upstream's changelog rather than duplicating it;
+      # upstream is the authoritative source and stays current.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -412,22 +532,29 @@ jobs:
           name: ${{ env.NEW_VERSION }}
           prerelease: ${{ needs.smoke-test.outputs.exe_pass != 'true' }}
           body: |
-            Unofficial automated build of FluentFlyout ${{ env.NEW_VERSION }}, rebuilt from
-            https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }}
+            Unofficial automated build of FluentFlyout ${{ env.NEW_VERSION }}.
 
-            See build-provenance.json for the exact source commit and build run used.
+            ### 📋 What's new in this version
+            This is a rebuild of upstream's release — see **[unchihugo's release notes for ${{ env.NEW_VERSION }}](https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }})** for the full changelog, screenshots, and credits.
+
+            See `build-provenance.json` for the exact source commit and build run used.
 
             ${{ needs.smoke-test.outputs.exe_pass == 'true' && 'New here? Download FluentFlyout_Installer.exe below and just run it - it handles everything (architecture detection, certificate trust, install, cleanup) on its own.' || '**Marked as a prerelease**: FluentFlyoutInstaller.exe failed automated smoke testing this build, so it is not attached. The .msix itself passed testing and is safe to use via the manual install steps in the README.' }}
           files: output/*
 
+  # ----------------------------------------------------------------------------
+  # Packs and pushes the Chocolatey package, then confirms it is actually listed.
+  # Skipped entirely when the installer failed smoke testing.
+  # ----------------------------------------------------------------------------
   publish-chocolatey:
     name: Publishing to Chocolatey
     needs: [check-release, sign-packages, smoke-test, publish]
     if: needs.smoke-test.outputs.exe_pass == 'true' && needs.check-release.outputs.publish_choco == 'true'
     runs-on: windows-latest
+    # Includes the listing poll below, which can take up to three minutes.
+    timeout-minutes: 25
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
-      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     outputs:
       pkg_ver: ${{ steps.prep.outputs.pkg_ver }}
       choco_attempted: ${{ steps.verify.outputs.attempted }}
@@ -454,55 +581,23 @@ jobs:
           echo "arm_hash=$armHash" >> $env:GITHUB_OUTPUT
           echo "cert_hash=$certHash" >> $env:GITHUB_OUTPUT
 
+      # Chocolatey (like all NuGet feeds) treats id+version as immutable once
+      # published, so an untested build appends a revision segment and prerelease
+      # tag (e.g. 2.14.0.47-untested) to keep repeat pushes of the same upstream
+      # tag unique. A final build publishes the clean upstream version.
+      #
+      # The install script and .nuspec are templates; their placeholders are
+      # filled in here and never committed with real values.
       - name: Prepare Chocolatey package
         id: prep
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
           $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
+          $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { $ver }
 
-          # Find the next available revision number by asking Chocolatey
-          # itself for this package's existing versions - NOT GitHub's
-          # run number, which increments on every scheduled check
-          # (even ones that build nothing) and resets whenever this
-          # workflow file gets renamed. This way the number only ever
-          # grows when a real Chocolatey push has actually happened.
-          #
-          # This lookup is anchored to the CURRENT version specifically
-          # (via the regex below), so an older base version's existing
-          # revisions (e.g. 2.13.1.24) never leak into a new base
-          # version's count (e.g. 2.13.2 correctly starts at .1).
-          #
-          # If this call fails outright, we do NOT guess - a wrong guess
-          # risks colliding with or skipping real version history. Instead
-          # this notifies and stops the job.
-          try {
-            $resp = Invoke-WebRequest -Uri "https://community.chocolatey.org/api/v2/FindPackagesById()?id='fluentflyout-unofficial'" -UseBasicParsing -ErrorAction Stop
-            $existingVersions = [regex]::Matches($resp.Content, '<d:Version>([^<]+)</d:Version>') | ForEach-Object { $_.Groups[1].Value }
-          } catch {
-            $errMsg = $_.Exception.Message
-            Write-Error "Could not reach the Chocolatey API to determine the next version number: $errMsg"
-            if ($env:NTFY_TOPIC) {
-              Invoke-RestMethod -Uri "https://ntfy.sh/$env:NTFY_TOPIC" -Method Post -Body "Could not reach the Chocolatey API to determine the next package version. Nothing was pushed. Error: $errMsg" -Headers @{
-                "Title"    = "FluentFlyout Unofficial: Chocolatey publish aborted"
-                "Priority" = "high"
-                "Tags"     = "x"
-              }
-            }
-            exit 1
-          }
-          $pattern = '^' + [regex]::Escape($ver) + '\.(\d+)(-untested)?$'
-          $maxRevision = 0
-          foreach ($v in $existingVersions) {
-            if ($v -match $pattern) {
-              $rev = [int]$matches[1]
-              if ($rev -gt $maxRevision) { $maxRevision = $rev }
-            }
-          }
-          $nextRevision = $maxRevision + 1
-
-          $pkgVer = if ($markUntested -eq 'true') { "$ver.$nextRevision-untested" } else { "$ver.$nextRevision" }
           echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
           echo "pkg_ver=$pkgVer" >> $env:GITHUB_OUTPUT
+
           (Get-Content chocolatey\fluentflyout-unofficial.nuspec -Raw) -replace '__VERSION__', $pkgVer | Set-Content chocolatey\fluentflyout-unofficial.nuspec
           (Get-Content chocolatey\tools\chocolateyinstall.ps1 -Raw) `
             -replace '__X64_SHA256__', "${{ steps.sums.outputs.x64_hash }}" `
@@ -510,7 +605,7 @@ jobs:
             -replace '__CERT_SHA256__', "${{ steps.sums.outputs.cert_hash }}" `
             | Set-Content chocolatey\tools\chocolateyinstall.ps1
 
-      - name: Pack Chocolatey package (not pushed yet — see below)
+      - name: Pack Chocolatey package
         run: |
           choco pack chocolatey\fluentflyout-unofficial.nuspec --outputdirectory chocolatey
 
@@ -521,9 +616,8 @@ jobs:
           name: chocolatey-package
           path: chocolatey\*.nupkg
 
-      # continue-on-error so a push failure (e.g. the 403s we've hit before)
-      # doesn't kill the job before the Verify step below can build a
-      # proper report explaining what happened.
+      # continue-on-error keeps the job alive on a push failure so the verify
+      # step below can classify it and surface a useful message.
       - name: Push to Chocolatey
         id: push
         if: needs.check-release.outputs.publish_choco == 'true'
@@ -531,11 +625,9 @@ jobs:
         run: |
           choco push "chocolatey\fluentflyout-unofficial.$env:PKG_VER.nupkg" --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCO_API_KEY }}"
 
-      # A successful `choco push` only means Chocolatey ACCEPTED the
-      # package for processing - not that it's actually live. This polls
-      # Chocolatey's own API until the version genuinely appears (or a
-      # timeout is hit), so the final report reflects reality rather than
-      # just "the push command didn't error."
+      # A successful push only means Chocolatey accepted the package for
+      # processing, not that it is live, so the listing is polled until the
+      # version actually appears. Sets the outputs consumed by publish-report.
       - name: Verify Chocolatey listing
         id: verify
         run: |
@@ -563,13 +655,14 @@ jobs:
           $intervalSeconds = 20
           $elapsed = 0
           $verified = $false
+
           while ($elapsed -lt $maxWaitSeconds) {
             try {
               $uri = "https://community.chocolatey.org/api/v2/Packages(Id='fluentflyout-unofficial',Version='$pkgVer')"
               $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
               if ($resp) { $verified = $true; break }
             } catch {
-              # Not listed yet, or a transient error - keep waiting.
+              # Not listed yet, or a transient error; keep polling.
             }
             Start-Sleep -Seconds $intervalSeconds
             $elapsed += $intervalSeconds
@@ -584,15 +677,21 @@ jobs:
             exit 1
           }
 
+  # ----------------------------------------------------------------------------
+  # Sends exactly one summary notification per run, whatever the outcome.
+  #
+  # Depends on every build-stage job so it can name the stage that actually
+  # failed. Without this, an upstream failure would be misreported as a publish
+  # failure, since publish would simply have been skipped.
+  # ----------------------------------------------------------------------------
   publish-report:
     name: Final Publish Report
-    needs: [check-release, smoke-test, publish, publish-chocolatey]
-    # Only report when a build was actually attempted. Scheduled runs that
-    # find no new upstream version skip everything downstream, and without
-    # this gate they'd wrongly report "publish failed" (with a blank
-    # version, since none was ever set) every few hours.
+    needs: [check-release, build, sign-packages, package-installer, smoke-test, publish, publish-chocolatey]
+    # Gated on should_build so scheduled runs that find nothing to build stay
+    # silent instead of reporting a failure for a version that was never built.
     if: always() && needs.check-release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       NEW_VERSION: ${{ needs.check-release.outputs.new_version }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
@@ -600,14 +699,46 @@ jobs:
       - name: Build and send final report
         if: env.NTFY_TOPIC != ''
         run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BUILD_RESULT="${{ needs.build.result }}"
+          SIGN_RESULT="${{ needs.sign-packages.result }}"
+          INSTALLER_RESULT="${{ needs.package-installer.result }}"
+          SMOKE_RESULT="${{ needs.smoke-test.result }}"
           MSIX_PASS="${{ needs.smoke-test.outputs.msix_pass }}"
           GITHUB_OK="${{ needs.publish.result == 'success' }}"
-          CHOCO_RESULT="${{ needs.publish-chocolatey.result }}"
+          CHOCO_ATTEMPTED="${{ needs.publish-chocolatey.outputs.choco_attempted }}"
           CHOCO_VERIFIED="${{ needs.publish-chocolatey.outputs.choco_verified }}"
           CHOCO_ERROR="${{ needs.publish-chocolatey.outputs.choco_error }}"
           PKG_VER="${{ needs.publish-chocolatey.outputs.pkg_ver }}"
 
-          if [ "$MSIX_PASS" = "false" ]; then
+          # Walk the pipeline in order and report the first stage that broke.
+          # A 'cancelled' result here is almost always a timeout-minutes hit,
+          # which points at a hung step and needs a different fix from a normal
+          # failure - so the two are worded differently.
+          if [ "$BUILD_RESULT" != "success" ]; then
+            STAGE="Build"; STAGE_RESULT="$BUILD_RESULT"
+          elif [ "$SIGN_RESULT" != "success" ]; then
+            STAGE="Signing"; STAGE_RESULT="$SIGN_RESULT"
+          elif [ "$INSTALLER_RESULT" != "success" ]; then
+            STAGE="Installer build"; STAGE_RESULT="$INSTALLER_RESULT"
+          elif [ "$SMOKE_RESULT" != "success" ]; then
+            STAGE="Smoke test"; STAGE_RESULT="$SMOKE_RESULT"
+          else
+            STAGE=""
+          fi
+
+          if [ -n "$STAGE" ]; then
+            if [ "$STAGE_RESULT" = "cancelled" ]; then
+              REASON="timed out (likely a hung step) or was cancelled"
+            else
+              REASON="failed"
+            fi
+            TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} — $STAGE $REASON"
+            PRIORITY="high"
+            TAGS="x"
+            BODY="The $STAGE stage $REASON, so nothing was published for ${{ env.NEW_VERSION }}. The next scheduled run will retry automatically. Details: $RUN_URL"
+          elif [ "$MSIX_PASS" = "false" ]; then
             TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} release cancelled"
             PRIORITY="high"
             TAGS="x"
@@ -616,8 +747,8 @@ jobs:
             TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} publish failed"
             PRIORITY="high"
             TAGS="x"
-            BODY="The GitHub Release for ${{ env.NEW_VERSION }} failed to publish. Check the Actions run for details."
-          elif [ "$CHOCO_RESULT" = "skipped" ]; then
+            BODY="Everything built and tested fine, but creating the GitHub Release for ${{ env.NEW_VERSION }} failed. Details: $RUN_URL"
+          elif [ "$CHOCO_ATTEMPTED" != "true" ]; then
             TITLE="FluentFlyout Unofficial ${{ env.NEW_VERSION }} published"
             PRIORITY="low"
             TAGS="package"
@@ -634,7 +765,7 @@ jobs:
             if [ -n "$CHOCO_ERROR" ]; then
               BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. $CHOCO_ERROR"
             else
-              BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. Check the Actions run for details."
+              BODY="New GitHub Release for ${{ env.NEW_VERSION }} is live. But, publishing to Chocolatey has failed. Details: $RUN_URL"
             fi
           fi
 
