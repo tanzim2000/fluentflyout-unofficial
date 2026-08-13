@@ -11,7 +11,7 @@
 #                                                     │                  │
 #                                                     └──> smoke-test <──┘
 #                                                              │
-#                 publish-report <── publish-chocolatey <── publish
+#                                     publish ──> publish-chocolatey ──> publish-report
 #
 # FAILURE BEHAVIOUR
 #   - Any stage before smoke-test fails    -> nothing published; retried next cron run.
@@ -582,9 +582,10 @@ jobs:
           echo "cert_hash=$certHash" >> $env:GITHUB_OUTPUT
 
       # Chocolatey (like all NuGet feeds) treats id+version as immutable once
-      # published, so an untested build appends a revision segment and prerelease
-      # tag (e.g. 2.14.0.47-untested) to keep repeat pushes of the same upstream
-      # tag unique. A final build publishes the clean upstream version.
+      # published, so every push appends a revision segment (the run number)
+      # to guarantee a version Chocolatey has never seen before - untested and
+      # final pushes alike. Untested pushes additionally carry the "-untested"
+      # prerelease tag, e.g. 2.14.0.47-untested vs. 2.14.0.47.
       #
       # The install script and .nuspec are templates; their placeholders are
       # filled in here and never committed with real values.
@@ -593,7 +594,7 @@ jobs:
         run: |
           $ver = "${{ env.NEW_VERSION }}".TrimStart('v')
           $markUntested = "${{ needs.check-release.outputs.mark_untested }}"
-          $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { $ver }
+          $pkgVer = if ($markUntested -eq 'true') { "$ver.${{ github.run_number }}-untested" } else { "$ver.${{ github.run_number }}" }
 
           echo "PKG_VER=$pkgVer" >> $env:GITHUB_ENV
           echo "pkg_ver=$pkgVer" >> $env:GITHUB_OUTPUT

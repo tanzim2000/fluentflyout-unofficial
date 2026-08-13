@@ -3,10 +3,12 @@ name: Manual Chocolatey Push
 # Manual trigger only. Use this ONLY for a manual resubmit - most commonly,
 # fixing a package that failed Chocolatey moderation and needs to be
 # re-uploaded as the SAME version number (Chocolatey's own rules require
-# the exact same version during moderation review). The normal automated
-# pipeline can't do this: publish-chocolatey always looks up the highest
-# existing version and pushes the next number up, so it would create a
-# NEW version instead of replacing the rejected one.
+# the exact same version during moderation review), or pushing a clean final
+# version from binaries that were already built and smoke-tested. The normal
+# automated pipeline can't do either: publish-chocolatey always looks up the
+# highest existing version and pushes the next number up, so it would create
+# a NEW version and force a full rebuild rather than reusing what's already
+# published.
 #
 # This workflow does none of the app-building or signing - it assumes the
 # .msix files and signing.cer are already sitting in a GitHub Release (the
@@ -17,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact Chocolatey version to push, e.g. 2.13.1.4 or 2.13.1.4-untested'
+        description: 'Exact Chocolatey version to push, e.g. 2.14.0, 2.13.1.4, or 2.13.1.4-untested'
         required: true
         type: string
 
@@ -35,10 +37,14 @@ jobs:
         id: prep
         run: |
           $pkgVersion = "${{ inputs.version }}"
-          # Same stripping logic chocolateyinstall.ps1 itself uses: drop a
-          # trailing "-untested" tag, then drop a trailing ".NN" revision
-          # segment. "2.13.1.4-untested" -> "2.13.1"   "2.13.1.4" -> "2.13.1"
-          $appVersion = $pkgVersion -replace '-untested$', '' -replace '\.\d+$', ''
+          # Strips the "-untested" tag and, if present, a trailing 4th
+          # revision segment. Clean 3-segment versions pass through
+          # unchanged, since GitHub release tags always mirror upstream's
+          # own version numbering exactly:
+          #   "2.13.1.4-untested" -> "2.13.1"
+          #   "2.13.1.4"          -> "2.13.1"
+          #   "2.14.0"            -> "2.14.0"  (nothing to strip)
+          $appVersion = $pkgVersion -replace '-untested$', '' -replace '^(\d+\.\d+\.\d+)\.\d+$', '$1'
           Write-Host "Chocolatey version to push: $pkgVersion"
           Write-Host "Corresponding app/GitHub release version: v$appVersion"
 
