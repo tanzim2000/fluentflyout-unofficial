@@ -1,156 +1,314 @@
-# FluentFlyout Unofficial Builds
+# hayase-extension
 
-> **Unofficial**, automated, community-maintained builds of [FluentFlyout](https://github.com/unchihugo/FluentFlyout) rebuilt directly from upstream source on every release and republished here and via Chocolatey.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/tanzim2000/hayase-extension/blob/main/LICENSE)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/tanzim2000/hayase-extension/blob/main/index.json)
+[![Extensions](https://img.shields.io/badge/extensions-9-orange.svg)](https://github.com/tanzim2000/hayase-extension/blob/main/index.json)
+[![Build](https://github.com/tanzim2000/hayase-extension/actions/workflows/rebuild-dist.yml/badge.svg)](https://github.com/tanzim2000/hayase-extension/actions/workflows/rebuild-dist.yml)
+[![Stars](https://img.shields.io/github/stars/tanzim2000/hayase-extension?style=social)](https://github.com/tanzim2000/hayase-extension/stargazers)
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/FluentFlyout%20Unofficial%20Publication%20Script.yml?branch=main)](../../actions)
-[![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial)](../../releases/latest)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Chocolatey](https://img.shields.io/chocolatey/v/fluentflyout-unofficial)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
 
----
+A collection of torrent source extensions for [Hayase](https://github.com/hayase-app/hayase) — covering English subs, English dubs, non-English languages, and CJK fansubs.
 
-## What this is
+|⭐ Found this useful?|
+|--|
+|Star the repo and share with others — it helps others discover it!|
 
-FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11. The only official way to get a ready-to-install build is the Microsoft Store, where the full feature set sits behind a "small" paid unlock. The project's own GitHub page provides source code only, no compiled installer.
-
-This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source, with every feature already unlocked and no payment required, and keeps it install-ready here and on Chocolatey.
-
-```mermaid
-flowchart LR
-    A["🔍 Watcher: Polls upstream releases every 6 hours"] --> B["🛠️ Builder: Compiles from source on windows-latest (x64 + ARM64, separately)"]
-    B --> C["🔏 Signer: Signs each .msix with our own cert"]
-    C --> D["🧪 Tester: Installs the .msix and the installer .exe for real"]
-    D --> E["📦 Publisher: GitHub Release + Chocolatey package"]
-```
-
-Runs entirely on GitHub Actions. No manual steps once a new upstream tag is detected.
+> **Disclaimer:** This project is for educational purposes only. It provides source code for search extensions that interface with publicly available torrent indexers. It does not host, distribute, or link to any copyrighted content. Users are solely responsible for ensuring their use complies with applicable laws and the terms of service of any indexer they connect to.
 
 ---
 
 ## Installation
 
-### Option 1️⃣ One-Click Installer **(Easiest, no auto-update)**
+1. Open Hayase and go to **Settings → Extensions**
+2. Click **Add Repository**
+3. Paste the following URL:
 
-1. Go to the [Releases page](../../releases/latest) and download `FluentFlyout_Installer.exe`.
-2. Run it.
-3. Windows will likely show a **"Windows protected your PC"** SmartScreen warning first, click **More info → Run anyway**. This shows up because the installer itself isn't signed yet, not because anything is wrong.
-4. Approve the admin (UAC) prompt that follows.
-
-That's it! the installer detects your CPU architecture, downloads the right files, trusts the certificate, and installs the app automatically. No manual certificate steps.
-
-> Note: this installer doesn't auto-update. Re-download and re-run it whenever a new version comes out, or use Option 2 below if you'd rather updates happen on their own.
-
-### Option 2️⃣ Chocolatey (auto-updating)
-
-```powershell
-choco install fluentflyout-unofficial
+```
+https://raw.githubusercontent.com/tanzim2000/hayase-extension/refs/heads/main/index.json
 ```
 
-Future updates: `choco upgrade fluentflyout-unofficial` (or let your regular `choco upgrade all` pick it up).
-
-> Note: you must have the chocolatey package manager installed first.
-
-### Option 3️⃣ GitHub Release (Fully manual)
-
-1. Go to the [Releases page](../../releases/latest).
-2. Figure out which CPU your PC has:
-   - **Most PCs and laptops** → **x64**
-   - **Surface Pro X, Snapdragon-based "Copilot+ PC" laptops** → **ARM64**
-   - Not sure? Open **Settings → System → About** and check "System type."
-3. Download **both**:
-   - `signing.cer`
-   - `FluentFlyout_<version>_x64.msix` **or** `FluentFlyout_<version>_ARM64.msix` (whichever matches your CPU)
-4. Right-click the `.cer` file → **Install Certificate** → **Local Machine** → **Place all certificates in the following store** → **Trusted People** → **Finish**.
-5. Double-click the `.msix` file → the Windows App Installer will open → **Install**.
-
-> **Note:** these builds are lightweight (framework-dependent), meaning Windows may prompt you to install the **.NET Desktop Runtime** the first time you launch the app if it isn't already on your system. This is a normal, small, one-time Microsoft download, not something this project manages.
-
-### Verifying what you're installing
-
-Every release includes a `SHA256SUMS.txt` file and a `build-provenance.json` noting:
-- The exact upstream commit/tag this build was compiled from
-- The GitHub Actions run that produced it (fully inspectable, logs are public)
-
-We encourage you to check both rather than blindly trusting any binary, including ours.
+4. All available extensions will appear. Enable the ones you want.
 
 ---
 
-## How the automation works
+## Extensions
 
-| Stage | Trigger | What happens |
+<!-- LAST_CHECKED -->
+> 🕐 Sources last verified: August 10, 2026 at 07:46 UTC
+<!-- /LAST_CHECKED -->
+
+### Torrent Sources
+
+| Name | Description | Media | Languages |
+|---|---|---|---|
+| **Nyaa** | Main anime torrent tracker. Sub-focused English releases. | Sub | 🇺🇸 🇯🇵 |
+| **Nyaa (Dub)** | Same as Nyaa but searches for English-dubbed releases. | Dub | 🇺🇸 |
+| **Nyaa (Non-English)** | Nyaa's non-English category. Set your language keyword in options (e.g. `Arabic`, `Hindi`, `Bangla`). | Dub | 🇸🇦 🇪🇬 🇮🇳 🇧🇩 + more |
+| **SeaDex** | Community-curated best and alt releases, matched by AniList ID. High accuracy. | Sub | 🇺🇸 🇯🇵 |
+| **Tokyo Toshokan** | One of the oldest anime indexes. Great for older and classic shows. | Sub | 🇺🇸 🇯🇵 |
+| **AnimeTosho** | ID-based search via AniDB. Mirrors Nyaa and Tokyo Toshokan with high accuracy. | Sub | 🇺🇸 🇯🇵 |
+| **SubsPlease** | Weekly simulcast releases from a trusted fansub group. Consistent, high quality. | Sub | 🇺🇸 |
+| **acg.rip** | Chinese anime tracker. Great for CJK fansubs not found on Nyaa. | Sub | 🇨🇳 🇯🇵 |
+| **Sukebei** | Nyaa's adult content sister site. Hentai anime and doujinshi. | Sub | 🇺🇸 🇯🇵 |
+
+### Extension Options
+
+Some extensions have configurable options, accessible from **Settings → Extensions → [Extension Name]**.
+
+#### Nyaa (Non-English)
+| Option | Description | Default |
 |---|---|---|
-| **Watch** | Cron, every 6 hours | Polls the upstream GitHub API for the latest release tag; compares against this repo's own most recent release. |
-| **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds **separate, lightweight** MSIX packages for x64 and ARM64 (framework-dependent, English-only resources, no bundled .NET runtime or unused translation files). |
-| **Sign** | After successful build | Signs **each architecture's `.msix` file individually** with this project's own self-signed certificate (see below on trust) kept separate rather than combined, so an issue with one architecture never affects the other. |
-| **Test** | After signing | Actually installs the signed `.msix` and runs the installer `.exe` silently on a real Windows machine, before anything is published. |
-| **Publish** | After testing | Creates a GitHub Release here with the `.msix` files + cert + checksums (+ the installer `.exe`, if it passed testing), then packs and pushes an updated Chocolatey package. |
+| `keyword` | Language keyword appended to every search query. Set this to your language, e.g. `Arabic`, `Hindi`, `Bangla`. | *(empty)* |
+| `category` | Nyaa category ID. Default is `1_3` (Non-English Translated). | `1_3` |
+| `domain` | Base URL. Change to a mirror if nyaa.si is blocked in your region. | `https://nyaa.si` |
 
-Full workflow source: [`.github/workflows/FluentFlyout Unofficial Publication Script.yml`](.github/workflows/FluentFlyout%20Unofficial%20Publication%20Script.yml)
+#### Nyaa / Nyaa (Dub)
+| Option | Description | Default |
+|---|---|---|
+| `domain` | Base URL. Change to a mirror if nyaa.si is blocked in your region. | `https://nyaa.si` |
+| `filter` | Quality filter. `0` = all, `1` = no remakes, `2` = trusted only. | `0` |
 
-### About the signing certificate
+#### acg.rip
+| Option | Description | Default |
+|---|---|---|
+| `domain` | Base URL. Override only if acg.rip moves domains. | `https://acg.rip` |
 
-FluentFlyout itself uses a self-signed cert (real EV certs are expensive for indie/community projects). This repo does the same, but with **our own separate certificate**, meaning trusting this repo's builds is a distinct decision from trusting upstream's official builds. The cert's public fingerprint is published in every release's `SHA256SUMS.txt` so you can verify it hasn't changed unexpectedly between versions.
+#### SubsPlease
+| Option | Description | Default |
+|---|---|---|
+| `resolution` | Preferred resolution: `480`, `720`, or `1080`. Leave empty to use Hayase's setting. | `1080` |
+
+#### Sukebei
+| Option | Description | Default |
+|---|---|---|
+| `domain` | Sukebei base URL. Change to a mirror if blocked. | `https://sukebei.nyaa.si` |
+| `category` | Category: `1_1` = Hentai, `2_2` = Real Life Videos, `0_0` = All. | `1_1` |
+| `filter` | Quality filter. `0` = all, `1` = no remakes, `2` = trusted only. | `0` |
 
 ---
 
-## Disclaimer & Attribution
+## Building from Source
 
-This project is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author ([@unchihugo](https://github.com/unchihugo)). All credit for FluentFlyout's design, functionality, and code belongs to the upstream project and its contributors.
+### Prerequisites
 
-This repository exists solely to provide **free, automatically-built binaries**, nothing here is hidden, obfuscated, or different from what the public source code does.
+- [Node.js](https://nodejs.org/) v24
+- npm
 
-FluentFlyout is licensed under the **GNU General Public License v3.0**. This project, as a derivative distribution of that work, is licensed under the same terms, see [`LICENSE`](LICENSE). In accordance with GPLv3:
+### Setup
 
-- Every build here is clearly marked as a modified/rebuilt redistribution, not the original.
-- Full corresponding source is always available; either at the upstream repo directly, or in this repo's build logs, which pin the exact commit/tag used.
-- No additional restrictions are placed on top of GPLv3. You are free to use, modify, and redistribute these builds under the same license.
+```bash
+# Clone the repo
+git clone https://github.com/tanzim2000/hayase-extension.git
+cd hayase-extension
 
-**Please consider supporting the original developer**, via the [Microsoft Store version](https://apps.microsoft.com/detail/9n45nsm4tnbp) (small optional paid unlock) or [GitHub Sponsors](https://github.com/sponsors/unchihugo), if the app is useful to you and you're able to.
+# Install dependencies
+npm install
+```
 
----
+### Build
 
-## FAQ
+```bash
+# Build all extensions into dist/ (minified, production-ready)
+npm run build
 
-**Is this safe?**
-Nothing here is installed silently or without your say-so, you still have to manually choose to trust it, the same way you would with any app that isn't from the Microsoft Store. Here's what that trust actually rests on:
-- Every build is made by a robot (GitHub Actions), not a person typing commands by hand so, there's no manual step where someone could sneak in extra code before it reaches you.
-- That robot builds directly from the exact same public source code as the original FluentFlyout project, nothing is removed, or changed.
-- Every release shows exactly which version of the original source it was built from, so anyone can check that the build matches what the original developer actually published.
-- That said, you are trusting *this project's maintainer* to keep it that way. If you'd rather not trust anyone but the original developer, the Microsoft Store version remains the safest option, since Microsoft itself reviews and signs it.
+# Watch mode — rebuilds automatically on every save (not minified, easier to debug)
+npm run watch
+```
 
-**Why not just use the Microsoft Store version?**
-You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't pay for the Store unlock, GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
-
-**Will this break if upstream changes their build process?**
-Possibly... if the original project restructures its code significantly, the automated build here may need updates too. If a release ever fails to appear, it usually means the automation notified the maintainer(s). Issues/PRs welcome if you notice a gap.
-
-**Does this unlock the paid Store features? Does that hurt the original developer?**
-Yes, it unlocks them... that's the actual point of this project. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means the original author can't legally lock any feature behind payment in the source itself. The Store payment is effectively an optional, forced-feeling way of asking for a donation. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think everyone should have to pay to use free, open-source software. Purchasing power varies enormously around the world, and a flat price that's minor in one country can be genuinely significant in another. Building from source yourself would get you the exact same result, this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support the original author's work, please consider supporting him.
-
-**Why does the app still show "PREMIUM" badges and Store-related text if everything's unlocked?**
-Because this project deliberately doesn't touch the app's UI or code at all beyond the minimal identity/credit changes described above, it compiles unchihugo's source exactly as published. Those "PREMIUM" labels, and the onboarding screen's Store-related wording, are part of that same shared codebase the Store version uses, not something this project added or controls. They're leftover cosmetic labels, not a functional gate, every feature behind them works normally once toggled on. We've deliberately left them as-is rather than patching them out, because doing so would mean maintaining a second, ongoing fork of the UI that has to be kept in sync with upstream forever, instead of the current process, which stays simple by changing as little as possible. If this ever becomes genuinely confusing in practice, it's open to reconsideration, see [Contributing](#contributing).
+Built files are output to `dist/`. Each file is fully self-contained and ready for Hayase to load.
 
 ---
 
 ## Contributing
 
-Issues and PRs welcome, especially for:
-- Build pipeline fixes if upstream's project structure changes
-- Testing on real ARM64 hardware (the build is automated, but real-device testing helps catch issues)
-- Chocolatey package review/approval help
-- Testing installs on real, non-Sandbox machines, UAC and SmartScreen behavior can differ from what CI and Sandbox testing catches
-- Help pursuing a proper code-signing certificate (e.g. via SignPath Foundation's free program for open-source projects), which would remove the SmartScreen warning and reduce antivirus false-positive risk at the root
+Contributions are welcome! Here's how to add a new extension or improve an existing one.
+
+### Setting Up
+
+1. [Fork](https://github.com/tanzim2000/hayase-extension/fork) the repository
+2. Clone your fork:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/hayase-extension.git
+   cd hayase-extension
+   npm install
+   ```
+3. Create a new branch for your changes:
+   ```bash
+   git checkout -b my-new-extension
+   ```
+
+### Adding a New Extension
+
+**1. Write your source file**
+
+Create `src/yourextension.js`. Your extension must export a default object with these methods:
+
+```js
+export default {
+  async test(query) {
+    // Check if the source is reachable. Return true if OK, throw a
+    // user-friendly error message if not.
+  },
+
+  async single(query, options = {}) {
+    // Single episode search. Return TorrentResult[].
+  },
+
+  async batch(query, options = {}) {
+    // Batch/season pack search. Return TorrentResult[].
+  },
+
+  async movie(query, options = {}) {
+    // Movie search. Return TorrentResult[].
+  },
+}
+```
+
+The `query` object Hayase passes in includes:
+- `query.titles` — array of title variants (romaji, English, Japanese)
+- `query.episode` — episode number
+- `query.resolution` — preferred resolution (`'1080'`, `'720'`, etc.)
+- `query.exclusions` — keywords to filter out of results
+- `query.anilistId` — AniList ID
+- `query.fetch` — use this instead of global `fetch` for CORS to work
+
+Each result in the returned array should look like:
+```js
+{
+  title: 'string',       // torrent name
+  link: 'string',        // magnet link or .torrent URL
+  hash: 'string',        // info hash
+  size: 0,               // size in bytes
+  seeders: 0,
+  leechers: 0,
+  downloads: 0,
+  accuracy: 'high',      // 'high', 'medium', or 'low'
+  date: new Date(),
+}
+```
+
+See the existing source files in `src/` for real examples.
+
+**2. Register it in build.mjs**
+
+Open `build.mjs` and add your extension to `entryPoints`:
+
+```js
+entryPoints: {
+  nyaasi:        'src/nyaasi.js',
+  // ... existing entries ...
+  yourextension: 'src/yourextension.js',  // ← add this
+},
+```
+
+**3. Add an entry to index.json**
+
+Add a new object to the array in `index.json`:
+
+```json
+{
+  "manifestVersion": 2,
+  "name": "Your Extension",
+  "id": "tanzim.yourextension",
+  "version": "1.0.0",
+  "description": "Short description of what this source is.",
+  "type": "torrent",
+  "accuracy": "medium",
+  "updatePeers": true,
+  "ratio": 0,
+  "media": "sub",
+  "languages": ["US", "JP"],
+  "url": "<base64 encoded URL of the source site>",
+  "icon": "https://example.com/favicon.ico",
+  "update": "https://raw.githubusercontent.com/tanzim2000/hayase-extension/refs/heads/main/index.json",
+  "code": "https://raw.githubusercontent.com/tanzim2000/hayase-extension/refs/heads/main/dist/yourextension.js"
+}
+```
+
+> The `url` field should be the source site's base URL encoded in Base64. You can encode it quickly in your browser console: `btoa('https://example.com')`
+
+**4. Build and test**
+
+```bash
+npm run build
+```
+
+Load the built extension locally in Hayase to verify it works before submitting.
+
+**5. Open a pull request**
+
+Push your branch and open a pull request against `main`. Describe what the extension does and what source it connects to.
+
+### Conventions
+
+#### Extension ID Format
+
+Every extension ID must follow this pattern:
+
+```
+{mediaType}.{sourceName}
+{mediaType}.{sourceName}.{variant}
+```
+
+| Segment | Description |
+|---|---|
+| `mediaType` | The type of content the extension serves. Use `anime` for anime. `movie` and `tv` are reserved for future use. |
+| `sourceName` | A short, lowercase identifier for the source site. e.g. `nyaasi`, `seadex`, `acgrip`. |
+| `variant` | Optional. Used when multiple entries share the same source. e.g. `dub`, `nonenglish`. |
+
+**Examples:**
+```
+anime.nyaasi
+anime.nyaasi.dub
+anime.nyaasi.nonenglish
+movie.nyaasi        ← reserved for future use
+tv.nyaasi           ← reserved for future use
+```
+
+IDs must be unique. Once published, **do not change an extension's ID** — Hayase uses it internally to store user settings and track installed extensions. Changing it is a breaking change for existing users.
+
+#### Accuracy
+
+Set the `accuracy` field honestly. Hayase uses it to rank and filter results for the user, so misrepresenting it directly affects the experience.
+
+| Value | When to use |
+|---|---|
+| `"high"` | The source uses ID-based matching (e.g. AniList ID, AniDB ID). Results are precise. |
+| `"medium"` | Some ID mapping is used but not perfect, or it's a single trusted source with very consistent naming. |
+| `"low"` | Pure string/keyword search. Results can be noisy or include false positives. |
+
+**Do not set `"high"` unless the source genuinely uses ID-based matching.** If in doubt, use `"low"`.
+
+### Guidelines
+
+- Use `query.fetch` instead of global `fetch` — this is required for CORS to work inside Hayase's sandboxed environment
+- Always handle errors with user-friendly messages (these are shown directly to the user in Hayase)
+- Apply `query.exclusions` to filter out unwanted results
+- Add dev comments explaining non-obvious decisions, especially any trade-offs
 
 ---
 
-## Acknowledgments
+## Known Issues
 
-This repository's automation pipeline (workflow design, debugging, and documentation) was built with the assistance of [Claude](https://claude.com), Anthropic's AI assistant. All actual code execution, testing, and decisions were reviewed and approved by the repo maintainer — Claude doesn't have direct access to this repository or its infrastructure.
+- **Tokyo Toshokan** is currently not working. See the [Issues](https://github.com/tanzim2000/hayase-extension/issues) section for details and progress.
+
+---
+
+## Why No NZB Support?
+
+NZB sources like AltHub and NZBGeek require a personal API key to search, which means every user has to register, generate a key, and paste it into the extension settings before it works. That's friction I didn't want to impose.
+
+That said, if you want to add NZB support yourself, contributions are absolutely welcome — see the [Contributing](#contributing) section above.
+
+---
+
+## Acknowledgements
+
+- **[sinnafuls/hayase-ext](https://github.com/sinnafuls/hayase-ext)** — the project that inspired this one. Several ideas (including acg.rip support and the NZB extension approach) came from looking at his work.
+- **[Claude](https://claude.ai)** (Anthropic) — assisted with architecture decisions, code, and documentation throughout this project.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE) for the full text. Same license as upstream FluentFlyout, as required by GPLv3 §5(b)–(c).
-
-FluentFlyout is © its original author and contributors. This repository redistributes modified/rebuilt versions under the same license terms.
+[MIT](https://github.com/tanzim2000/hayase-extension/blob/main/LICENSE) © tanzim2000
