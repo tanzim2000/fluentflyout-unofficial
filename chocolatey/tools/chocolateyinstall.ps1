@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $packageName = 'fluentflyout-unofficial'
 $rawVersion  = $env:ChocolateyPackageVersion
-$version     = $rawVersion -replace '-untested$', '' -replace '\.\d+$', ''   # strip both the "-untested" tag and the run-number revision segment; GitHub release tags have neither
+$version     = $rawVersion -replace '-untested$', '' -replace '^(\d+\.\d+\.\d+)\.\d+$', '$1'   # strip the "-untested" tag and, if present, a trailing 4th revision segment - clean 3-segment versions (e.g. 2.14.0) pass through unchanged
 $repoBase    = "https://github.com/tanzim2000/fluentflyout-unofficial/releases/download/v$version"
 
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
