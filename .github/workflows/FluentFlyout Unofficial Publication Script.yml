@@ -57,9 +57,21 @@ on:
         description: 'Tag the Chocolatey package as "-untested" (SemVer prerelease)?'
         type: boolean
         default: true
+      replace_existing_release:
+        description: 'DANGER - replace an existing release binaries change, breaking published checksums'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+
+# Only one run of this workflow at a time. Two runs working on the same tag
+# concurrently would each compile their own binaries and could publish them to
+# different destinations, leaving GitHub and Chocolatey serving different files
+# for the same version.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 # Every job sets an explicit timeout-minutes. GitHub's default job limit is six
 # hours, which turns a hung step into a silent, day-long stall before anything
@@ -83,6 +95,7 @@ jobs:
       export_nupkg: ${{ steps.options.outputs.export_nupkg }}
       publish_choco: ${{ steps.options.outputs.publish_choco }}
       mark_untested: ${{ steps.options.outputs.mark_untested }}
+      release_exists: ${{ steps.check.outputs.release_exists }}
     steps:
       - uses: actions/checkout@v5
 
@@ -125,6 +138,45 @@ jobs:
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
+
+          # Does a release for the version we are about to build already exist?
+          # Checked by tag rather than by comparing against LAST_BUILT, so it is
+          # accurate even when the release list is ordered unexpectedly.
+          EXISTING=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$LATEST")
+          if [ "$EXISTING" = "200" ]; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Rebuilding a tag that already has a release is destructive: compiling the
+      # same source twice does not produce byte-identical binaries (embedded
+      # timestamps and similar), so a rebuild silently replaces the files already
+      # published under that tag. Anyone who downloaded and verified the originals
+      # is left with checksums that no longer match, and any Chocolatey package
+      # built from the previous binaries breaks.
+      #
+      # To re-push an existing version to Chocolatey WITHOUT rebuilding, use the
+      # "Manual Chocolatey Push" workflow instead - it reuses the published
+      # binaries and derives checksums from them.
+      - name: Guard against replacing an existing release
+        if: steps.check.outputs.should_build == 'true' && steps.check.outputs.release_exists == 'true' && github.event.inputs.replace_existing_release != 'true'
+        env:
+          NEW_VERSION: ${{ steps.check.outputs.new_version }}
+        run: |
+          MESSAGE="A release for $NEW_VERSION already exists, so this run was stopped before rebuilding it. Rebuilding would replace the published binaries and invalidate the checksums already distributed for that version. To re-push it to Chocolatey without rebuilding, use the Manual Chocolatey Push workflow. To rebuild anyway, re-run this workflow with 'replace_existing_release' checked."
+          echo "$MESSAGE"
+          if [ -n "$NTFY_TOPIC" ]; then
+            curl -s \
+              -H "Title: FluentFlyout Unofficial $NEW_VERSION - rebuild blocked" \
+              -H "Priority: high" \
+              -H "Tags: warning" \
+              -d "$MESSAGE" \
+              "https://ntfy.sh/$NTFY_TOPIC"
+          fi
+          exit 1
 
       - name: Notify (new release detected)
         if: steps.check.outputs.is_new_version == 'true' && env.NTFY_TOPIC != ''
