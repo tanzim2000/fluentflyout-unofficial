@@ -256,6 +256,73 @@ jobs:
 
           Set-Content $aboutXaml $after
 
+      # Redirects the in-app update checker at this repository's releases instead
+      # of upstream's API. Two effects: the check no longer contacts a
+      # third-party server, and the "update available" button sends users to the
+      # build they actually installed rather than upstream's download page.
+      #
+      # /releases/latest deliberately excludes prereleases, so users are never
+      # pointed at a degraded build that failed installer smoke testing.
+      #
+      # Patched as three independent single-line substitutions rather than one
+      # multi-line block, so an unrelated reformat upstream cannot silently
+      # break the match.
+      - name: Patch update checker to target this repository
+        run: |
+          $updateSvc = "upstream\FluentFlyoutWPF\Classes\Services\UpdateCheckerService.cs"
+          $src = Get-Content $updateSvc -Raw
+
+          $oldCall = 'var response = await FluentFlyoutApiClient.GetStringAsync(ApiEndpoint);'
+          $newCall = 'using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) }; http.DefaultRequestHeaders.UserAgent.ParseAdd("fluentflyout-unofficial"); var response = await http.GetStringAsync("https://api.github.com/repos/${{ github.repository }}/releases/latest");'
+
+          $patched = $src.Replace($oldCall, $newCall).
+            Replace('GetProperty("version")', 'GetProperty("tag_name")').
+            Replace('GetProperty("url")', 'GetProperty("html_url")')
+
+          if (($patched -eq $src) -or ($patched -notmatch 'api\.github\.com') -or ($patched -notmatch 'tag_name') -or ($patched -notmatch 'html_url')) {
+            Write-Error "FATAL: Could not fully patch UpdateCheckerService.cs - one or more expected code fragments were not found (upstream likely changed this file). Refusing to ship a build whose update checker still points at upstream."
+            exit 1
+          }
+          Set-Content $updateSvc $patched
+          Write-Host "Update checker now targets ${{ github.repository }}."
+
+          # The fallback URL used when no update URL comes back from the API.
+          $homePage = "upstream\FluentFlyoutWPF\Pages\HomePage.xaml.cs"
+          $before = Get-Content $homePage -Raw
+          $after = $before.Replace('"https://fluentflyout.com/changelog/"', '"https://github.com/${{ github.repository }}/releases/latest"')
+          if ($after -eq $before) {
+            Write-Error "FATAL: Could not patch the update URL fallback in HomePage.xaml.cs - the expected string was not found."
+            exit 1
+          }
+          Set-Content $homePage $after
+
+      # Publishes the exact patched source this build was compiled from. GitHub's
+      # auto-generated "Source code" archives contain only this repository's
+      # automation scripts, not the upstream code that actually becomes the app,
+      # so this closes that gap - and satisfies GPLv3's requirement to offer the
+      # corresponding source for a redistributed binary.
+      #
+      # Built once (x64 leg only); the patched source is identical for both
+      # architectures. Runs before compilation, so no bin/obj output exists yet.
+      - name: Package patched source for release
+        if: matrix.platform == 'x64'
+        run: |
+          $staging = "source-staging"
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Get-ChildItem upstream -Force |
+            Where-Object { $_.Name -notin @('.git', '.vs', 'bin', 'obj') } |
+            Copy-Item -Destination $staging -Recurse -Force
+          $zipName = "FluentFlyout_${env:NEW_VERSION}_patched-source.zip"
+          Compress-Archive -Path "$staging\*" -DestinationPath $zipName -Force
+          Write-Host "Created $zipName"
+
+      - name: Upload patched source
+        if: matrix.platform == 'x64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: patched-source
+          path: FluentFlyout_*_patched-source.zip
+
       - uses: microsoft/setup-msbuild@v3
       - uses: nuget/setup-nuget@v3
 
@@ -575,6 +642,12 @@ jobs:
           name: installer-exe
           path: output
 
+      - name: Download patched source
+        uses: actions/download-artifact@v7
+        with:
+          name: patched-source
+          path: output
+
       # Release notes link to upstream's changelog rather than duplicating it;
       # upstream is the authoritative source and stays current.
       - name: Create GitHub Release
@@ -589,7 +662,7 @@ jobs:
             ### 📋 What's new in this version
             This is a rebuild of upstream's release — see **[unchihugo's release notes for ${{ env.NEW_VERSION }}](https://github.com/unchihugo/FluentFlyout/releases/tag/${{ env.NEW_VERSION }})** for the full changelog, screenshots, and credits.
 
-            See `build-provenance.json` for the exact source commit and build run used.
+            See `build-provenance.json` for the exact source commit and build run used, and `FluentFlyout_*_patched-source.zip` for the exact patched source this build was compiled from.
 
             ${{ needs.smoke-test.outputs.exe_pass == 'true' && 'New here? Download FluentFlyout_Installer.exe below and just run it - it handles everything (architecture detection, certificate trust, install, cleanup) on its own.' || '**Marked as a prerelease**: FluentFlyoutInstaller.exe failed automated smoke testing this build, so it is not attached. The .msix itself passed testing and is safe to use via the manual install steps in the README.' }}
           files: output/*
