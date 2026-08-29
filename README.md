@@ -4,6 +4,8 @@
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/FluentFlyout%20Unofficial%20Publication%20Script.yml?branch=main)](../../actions)
 [![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial)](../../releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/tanzim2000/fluentflyout-unofficial/total?label=GitHub%20downloads)](../../releases)
+[![Chocolatey Downloads](https://img.shields.io/chocolatey/dt/fluentflyout-unofficial?label=Chocolatey%20installs)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Chocolatey](https://img.shields.io/chocolatey/v/fluentflyout-unofficial)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
 
@@ -17,10 +19,10 @@ This repo closes that gap: it automatically rebuilds FluentFlyout straight from 
 
 ```mermaid
 flowchart LR
-    A["🔍 Watcher: Polls upstream releases every 6 hours"] --> B["🛠️ Builder: Compiles from source on windows-latest (x64 + ARM64, separately)"]
-    B --> C["🔏 Signer: Signs each .msix with our own cert"]
-    C --> D["🧪 Tester: Installs the .msix and the installer .exe for real"]
-    D --> E["📦 Publisher: GitHub Release + Chocolatey package"]
+    A["🔍 Watcher<br/>Polls upstream releases<br/>every 6 hours"] --> B["🛠️ Builder<br/>Compiles from source<br/>on windows-latest<br/>(x64 + ARM64, separately)"]
+    B --> C["🔏 Signer<br/>Signs each .msix<br/>with our own cert"]
+    C --> D["🧪 Tester<br/>Installs the .msix and the<br/>installer .exe for real"]
+    D --> E["📦 Publisher<br/>GitHub Release +<br/>Chocolatey package"]
 ```
 
 Runs entirely on GitHub Actions. No manual steps once a new upstream tag is detected.
@@ -80,7 +82,7 @@ We encourage you to check both rather than blindly trusting any binary, includin
 | Stage | Trigger | What happens |
 |---|---|---|
 | **Watch** | Cron, every 6 hours | Polls the upstream GitHub API for the latest release tag; compares against this repo's own most recent release. |
-| **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds **separate, lightweight** MSIX packages for x64 and ARM64 (framework-dependent, English-only resources, no bundled .NET runtime or unused translation files). |
+| **Build** | New tag detected | Checks out the upstream repo at that exact tag, restores NuGet packages, builds **separate, lightweight** MSIX packages for x64 and ARM64 (framework-dependent, English-only resources, no bundled .NET runtime or unused translation files). Also redirects the in-app update checker at this repository (see below) and archives the exact patched source. |
 | **Sign** | After successful build | Signs **each architecture's `.msix` file individually** with this project's own self-signed certificate (see below on trust) kept separate rather than combined, so an issue with one architecture never affects the other. |
 | **Test** | After signing | Actually installs the signed `.msix` and runs the installer `.exe` silently on a real Windows machine, before anything is published. |
 | **Publish** | After testing | Creates a GitHub Release here with the `.msix` files + cert + checksums (+ the installer `.exe`, if it passed testing), then packs and pushes an updated Chocolatey package. |
@@ -117,6 +119,14 @@ Nothing here is installed silently or without your say-so, you still have to man
 - That robot builds directly from the exact same public source code as the original FluentFlyout project, nothing is removed, or changed.
 - Every release shows exactly which version of the original source it was built from, so anyone can check that the build matches what the original developer actually published.
 - That said, you are trusting *this project's maintainer* to keep it that way. If you'd rather not trust anyone but the original developer, the Microsoft Store version remains the safest option, since Microsoft itself reviews and signs it.
+
+**Does the app's "check for updates" button work on this build?**
+Yes, and it points here. Upstream's build checks `fluentflyout.com` for new versions; this build patches that to check **this repository's** releases instead, so the version it compares against and the page it sends you to are both the build you actually installed. Two side effects worth stating plainly: the update check contacts GitHub's API rather than a third-party server, and it will never point you at a prerelease (those are builds whose installer failed automated testing).
+
+To be clear about what this does *not* cover: upstream's app contains other network features of its own (such as anonymous usage telemetry and remote feature experiments) which this project has not modified. If you want a build with no outbound network calls at all, that's a larger change than this project currently makes, and you're better off compiling from source with those features disabled yourself.
+
+**How do I verify the build matches the source?**
+Every release includes `FluentFlyout_<version>_patched-source.zip` — the exact upstream source, with this project's patches already applied, that the binaries in that same release were compiled from. GitHub's own auto-generated "Source code" archives only contain this repository's automation scripts, not the app code, so this archive is what actually lets you audit or rebuild what you installed. It's also how this project meets GPLv3's requirement to offer the corresponding source alongside a redistributed binary.
 
 **Why not just use the Microsoft Store version?**
 You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't pay for the Store unlock, GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
