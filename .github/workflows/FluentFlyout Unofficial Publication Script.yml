@@ -562,16 +562,58 @@ jobs:
             $pkg2 = Get-AppxPackage -Name "*FluentFlyout*"
             if ($proc.ExitCode -eq 0 -and $pkg2) {
               $results += "PASS|Test 2 - Full installer (FluentFlyout_Installer.exe)|Ran silently end-to-end and verified via Get-AppxPackage ($($pkg2.PackageFullName))."
-              Remove-AppxPackage -Package $pkg2.PackageFullName -ErrorAction SilentlyContinue
             } else {
               $exePass = $false
+              $pkg2 = $null
               $logTail = if (Test-Path $installerLog) { (Get-Content $installerLog -Tail 10) -join "; " } else { "(no log produced)" }
               $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|Exit code $($proc.ExitCode). App found after run: $([bool]$pkg2). Last log lines: $logTail"
             }
           } catch {
             $exePass = $false
+            $pkg2 = $null
             $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|$($_.Exception.Message)"
           }
+
+          # Test 3 - re-running the installer while FluentFlyout is actively
+          # running, simulating a real upgrade. Add-AppxPackage cannot replace
+          # files locked by a running process, so this previously failed with
+          # HRESULT 0x80073D02 - a real failure a user hit on a genuine
+          # Chocolatey upgrade, never caught here because every prior test
+          # only ever installed onto a clean machine with nothing running.
+          # Only attempted if Test 2 actually got the app installed.
+          if ($pkg2) {
+            Write-Host "=== Test 3: Re-running installer over a running instance ==="
+            try {
+              $exePath = Get-ChildItem -Path $pkg2.InstallLocation -Filter "*.exe" -Recurse -ErrorAction Stop |
+                Where-Object { $_.Name -notmatch "SourceGenerators" } | Select-Object -First 1
+              if (-not $exePath) {
+                throw "Could not locate the installed .exe under $($pkg2.InstallLocation) to launch it."
+              }
+              $appProc = Start-Process -FilePath $exePath.FullName -PassThru -ErrorAction Stop
+              Start-Sleep -Seconds 5   # give it time to fully launch and lock its files
+
+              $proc2 = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
+                -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$env:TEMP\installer-test-upgrade.log" `
+                -Wait -PassThru -ErrorAction Stop
+              $pkg3 = Get-AppxPackage -Name "*FluentFlyout*"
+
+              if ($proc2.ExitCode -eq 0 -and $pkg3) {
+                $results += "PASS|Test 3 - Reinstall over a running instance|Installer closed the running process and completed successfully ($($pkg3.PackageFullName))."
+              } else {
+                $exePass = $false
+                $logTail = if (Test-Path "$env:TEMP\installer-test-upgrade.log") { (Get-Content "$env:TEMP\installer-test-upgrade.log" -Tail 10) -join "; " } else { "(no log produced)" }
+                $results += "FAIL|Test 3 - Reinstall over a running instance|Exit code $($proc2.ExitCode). App found after run: $([bool]$pkg3). Last log lines: $logTail"
+              }
+            } catch {
+              $exePass = $false
+              $results += "FAIL|Test 3 - Reinstall over a running instance|$($_.Exception.Message)"
+            } finally {
+              Get-Process -Name "*FluentFlyout*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          Get-AppxPackage -Name "*FluentFlyout*" -ErrorAction SilentlyContinue |
+            Remove-AppxPackage -ErrorAction SilentlyContinue
 
           echo "msix_pass=$($msixPass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           echo "exe_pass=$($exePass.ToString().ToLower())" >> $env:GITHUB_OUTPUT
