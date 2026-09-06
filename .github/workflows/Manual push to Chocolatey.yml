@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact Chocolatey version to push, e.g. 2.14.0, 2.13.1.4, or 2.13.1.4-untested'
+        description: 'Exact 4 segment Chocolatey version to push. Use "-untested" at the end for pre-releases'
         required: true
         type: string
 
