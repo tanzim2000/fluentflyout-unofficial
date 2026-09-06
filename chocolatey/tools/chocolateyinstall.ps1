@@ -37,6 +37,16 @@ Get-ChocolateyWebFile -PackageName $packageName -FileFullPath $certPath -Url $ce
 Write-Host "Trusting the package signing certificate (Local Machine, Trusted People)..."
 Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
 
+# FluentFlyout runs persistently in the tray, so an in-place upgrade fails with
+# HRESULT 0x80073D02 ("resources it modifies are currently in use") unless the
+# running instance is closed first - AppX cannot replace files still locked by
+# a live process. A fresh install has nothing running, so this only matters on
+# upgrade, which is why it was never caught by smoke testing (always a clean
+# machine with nothing already installed).
+Write-Host "Closing any running instance of FluentFlyout..."
+Get-Process -Name "*FluentFlyout*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
 Write-Host "Installing FluentFlyout..."
 Add-AppxPackage -Path $msixPath
 
