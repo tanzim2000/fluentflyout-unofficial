@@ -24,19 +24,19 @@ on:
   workflow_dispatch:
     inputs:
       major:
-        description: 'Version segment 1 (major - matches upstream, e.g. 2)'
+        description: 'Version segment 01 (match upstream!!)'
         required: true
         type: string
       minor:
-        description: 'Version segment 2 (minor, e.g. 14)'
+        description: 'Version segment 02 (match upstream!!)'
         required: true
         type: string
       patch:
-        description: 'Version segment 3 (patch, e.g. 0)'
+        description: 'Version segment 03 (match upstream!!)'
         required: true
         type: string
       revision:
-        description: 'Version segment 4 (Chocolatey revision number, e.g. 4)'
+        description: 'Version segment 04 (Chocolatey revision number)'
         required: true
         type: string
       untested:
