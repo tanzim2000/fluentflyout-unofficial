@@ -15,36 +15,71 @@ name: Manual Chocolatey Push
 # main pipeline's job), and only handles the Chocolatey packaging step:
 # download those files, compute their checksums, fill in the templates
 # from whatever's currently committed in chocolatey/, then pack and push.
+#
+# The version is entered as four separate segments plus an untested toggle,
+# rather than one free-text string - this makes it structurally impossible
+# to mistype a dot, drop a segment, or fumble the "-untested" suffix, since
+# the workflow assembles the final version itself.
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Exact 4 segment Chocolatey version to push. Use "-untested" at the end for pre-releases'
+      major:
+        description: 'Version segment 1 (major - matches upstream, e.g. 2)'
         required: true
         type: string
+      minor:
+        description: 'Version segment 2 (minor, e.g. 14)'
+        required: true
+        type: string
+      patch:
+        description: 'Version segment 3 (patch, e.g. 0)'
+        required: true
+        type: string
+      revision:
+        description: 'Version segment 4 (Chocolatey revision number, e.g. 4)'
+        required: true
+        type: string
+      untested:
+        description: 'Tag as "-untested" (SemVer prerelease)?'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
   manual-push:
-    name: Manually Pushing ${{ inputs.version }} to Chocolatey
+    name: Manually Pushing Chocolatey Version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Derive app version and download release files
+      - name: Validate segments and assemble version
         id: prep
         run: |
-          $pkgVersion = "${{ inputs.version }}"
-          # Strips the "-untested" tag and, if present, a trailing 4th
-          # revision segment. Clean 3-segment versions pass through
-          # unchanged, since GitHub release tags always mirror upstream's
-          # own version numbering exactly:
-          #   "2.13.1.4-untested" -> "2.13.1"
-          #   "2.13.1.4"          -> "2.13.1"
-          #   "2.14.0"            -> "2.14.0"  (nothing to strip)
-          $appVersion = $pkgVersion -replace '-untested$', '' -replace '^(\d+\.\d+\.\d+)\.\d+$', '$1'
+          # Each segment must be a plain non-negative integer. Checked
+          # explicitly and failed clearly here, rather than letting a typo
+          # silently produce a malformed version that fails later, less
+          # obviously, at the download or pack step.
+          $segments = @{
+            major    = "${{ inputs.major }}"
+            minor    = "${{ inputs.minor }}"
+            patch    = "${{ inputs.patch }}"
+            revision = "${{ inputs.revision }}"
+          }
+          foreach ($name in $segments.Keys) {
+            if ($segments[$name] -notmatch '^\d+$') {
+              Write-Error "Segment '$name' must be a plain non-negative integer, got: '$($segments[$name])'"
+              exit 1
+            }
+          }
+
+          $appVersion = "$($segments.major).$($segments.minor).$($segments.patch)"
+          $pkgVersion = "$appVersion.$($segments.revision)"
+          if ("${{ inputs.untested }}" -eq 'true') {
+            $pkgVersion = "$pkgVersion-untested"
+          }
+
           Write-Host "Chocolatey version to push: $pkgVersion"
           Write-Host "Corresponding app/GitHub release version: v$appVersion"
 
