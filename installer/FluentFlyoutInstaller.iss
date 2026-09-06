@@ -236,8 +236,17 @@ begin
 		// package's own manifest - not from Get-StartApps, since that
 		// reads Windows' Start Menu index, which can lag behind
 		// Add-AppxPackage actually finishing.
+		//
+		// A running instance is stopped first: FluentFlyout runs
+		// persistently in the tray, and re-running this installer to
+		// upgrade over a live instance otherwise fails with HRESULT
+		// 0x80073D02 ("resources it modifies are currently in use"),
+		// since AppX cannot replace files still locked by the running
+		// process.
 		InstallScript :=
 			'$ErrorActionPreference = ''Stop''' + #13#10 +
+			'Get-Process -Name ''*FluentFlyout*'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue' + #13#10 +
+			'Start-Sleep -Seconds 2' + #13#10 +
 			'Add-AppxPackage -Path ''' + TempDir + '\app.msix''' + #13#10 +
 			'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
 			'if ($pkg) {' + #13#10 +
