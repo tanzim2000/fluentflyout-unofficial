@@ -19,11 +19,13 @@
     <description>
 **Unofficial**, automatically-rebuilt binaries of [FluentFlyout](https://github.com/unchihugo/FluentFlyout), a free, open-source (GPLv3) Fluent 2-styled media flyout app for Windows 11.
 
-This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. FluentFlyout's GitHub page only provides the source code — no compiled installer, and no free download of the full app. The only official way to get a ready-to-install build is the Microsoft Store, where the full feature set sits behind a paid unlock. **This package removes that paywall entirely** — it's a free, pre-built version with every feature already unlocked, kept auto-updating, with nothing to compile yourself and nothing to pay.
+This package is **not affiliated with, endorsed by, or maintained by** the original FluentFlyout author. The core app (the media flyout, the Lock Keys flyout, the Up Next preview, full customization) is already free everywhere, Store included. The Microsoft Store version additionally sells a small set of optional extras — the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon — for a small one-time price. FluentFlyout's GitHub page only provides the source code, no compiled installer. **This package unlocks those optional extras too, at no cost** — it's a free, pre-built version with everything already unlocked, kept auto-updating, with nothing to compile yourself and nothing to pay.
 
 Supports both **x64** and **ARM64** — this script automatically detects your system's architecture and downloads the matching build.
 
 Every build here is compiled directly from upstream's public source by an automated pipeline, signed with this project's own certificate (not upstream's), and traceable back to the exact source commit used. Full details, source, and build provenance: https://github.com/tanzim2000/fluentflyout-unofficial
+
+**About the signing certificate:** installing this package adds this project's self-signed certificate to the Local Machine Trusted People store, meaning it's trusted machine-wide, for every account on the PC, not just the one running the install. That's standard for installing any self-signed app system-wide, but worth knowing before you proceed.
 
 Building from source yourself would get you the same result — this package just saves you that step, while respecting GPLv3 and crediting the original author for the work.
     </description>
