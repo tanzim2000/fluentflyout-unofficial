@@ -13,9 +13,9 @@
 
 ## What this is
 
-FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11. The only official way to get a ready-to-install build is the Microsoft Store, where the full feature set sits behind a "small" paid unlock. The project's own GitHub page provides source code only, no compiled installer.
+FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11 — the core app (the media flyout, the Lock Keys flyout, the Up Next preview, full customization) is free everywhere, Store included. The Microsoft Store version additionally sells a small set of optional extras — the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon — for a small one-time price. The project's own GitHub page provides source code only, no compiled installer.
 
-This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source, with every feature already unlocked and no payment required, and keeps it install-ready here and on Chocolatey.
+This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source — with those optional extras unlocked too, at no cost — and keeps it install-ready here and on Chocolatey.
 
 ```mermaid
 flowchart LR
@@ -93,6 +93,8 @@ Full workflow source: [`.github/workflows/FluentFlyout Unofficial Publication Sc
 
 FluentFlyout itself uses a self-signed cert (real EV certs are expensive for indie/community projects). This repo does the same, but with **our own separate certificate**, meaning trusting this repo's builds is a distinct decision from trusting upstream's official builds. The cert's public fingerprint is published in every release's `SHA256SUMS.txt` so you can verify it hasn't changed unexpectedly between versions.
 
+**Trust scope:** every install method above (the one-click installer, Chocolatey, and the manual steps) adds this certificate to the **Local Machine** Trusted People store — meaning it's trusted machine-wide, for every account on the PC, not just the one running the install. That's standard for installing any self-signed app system-wide, but worth knowing plainly before you proceed.
+
 ---
 
 ## Disclaimer & Attribution
@@ -107,7 +109,7 @@ FluentFlyout is licensed under the **GNU General Public License v3.0**. This pro
 - Full corresponding source is always available; either at the upstream repo directly, or in this repo's build logs, which pin the exact commit/tag used.
 - No additional restrictions are placed on top of GPLv3. You are free to use, modify, and redistribute these builds under the same license.
 
-**Please consider supporting the original developer**, via the [Microsoft Store version](https://apps.microsoft.com/detail/9n45nsm4tnbp) (small optional paid unlock) or [GitHub Sponsors](https://github.com/sponsors/unchihugo), if the app is useful to you and you're able to.
+**Please consider supporting the original developer**, via the [Microsoft Store version](https://apps.microsoft.com/detail/9n45nsm4tnbp) (small optional paid extras) or [GitHub Sponsors](https://github.com/sponsors/unchihugo), if the app is useful to you and you're able to.
 
 ---
 
@@ -129,13 +131,13 @@ To be clear about what this does *not* cover: upstream's app contains other netw
 Every release includes `FluentFlyout_<version>_patched-source.zip` — the exact upstream source, with this project's patches already applied, that the binaries in that same release were compiled from. GitHub's own auto-generated "Source code" archives only contain this repository's automation scripts, not the app code, so this archive is what actually lets you audit or rebuild what you installed. It's also how this project meets GPLv3's requirement to offer the corresponding source alongside a redistributed binary.
 
 **Why not just use the Microsoft Store version?**
-You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't pay for the Store unlock, GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
+You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't pay for the Store's optional extras, GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
 
 **Will this break if upstream changes their build process?**
 Possibly... if the original project restructures its code significantly, the automated build here may need updates too. If a release ever fails to appear, it usually means the automation notified the maintainer(s). Issues/PRs welcome if you notice a gap.
 
 **Does this unlock the paid Store features? Does that hurt the original developer?**
-Yes, it unlocks them... that's the actual point of this project. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means the original author can't legally lock any feature behind payment in the source itself. The Store payment is effectively an optional, forced-feeling way of asking for a donation. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think everyone should have to pay to use free, open-source software. Purchasing power varies enormously around the world, and a flat price that's minor in one country can be genuinely significant in another. Building from source yourself would get you the exact same result, this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support the original author's work, please consider supporting him.
+The core app is free everywhere already, including the Store — this project isn't unlocking that. What this build *does* unlock, at no cost, is the small set of extras the Store sells for a one-time price: the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means the original author can't legally lock any feature behind payment in the source itself — that purchase is effectively an optional, forced-feeling way of asking for a donation for those specific extras. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think people should have to pay for it, especially given how differently a flat price lands depending on where in the world you live. Building from source yourself would get you the exact same result; this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support the original author's work, please consider doing so.
 
 **Why does the app still show "PREMIUM" badges and Store-related text if everything's unlocked?**
 Because this project deliberately doesn't touch the app's UI or code at all beyond the minimal identity/credit changes described above, it compiles unchihugo's source exactly as published. Those "PREMIUM" labels, and the onboarding screen's Store-related wording, are part of that same shared codebase the Store version uses, not something this project added or controls. They're leftover cosmetic labels, not a functional gate, every feature behind them works normally once toggled on. We've deliberately left them as-is rather than patching them out, because doing so would mean maintaining a second, ongoing fork of the UI that has to be kept in sync with upstream forever, instead of the current process, which stays simple by changing as little as possible. If this ever becomes genuinely confusing in practice, it's open to reconsideration, see [Contributing](#contributing).
