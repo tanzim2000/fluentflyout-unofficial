@@ -564,9 +564,14 @@ jobs:
               $results += "PASS|Test 2 - Full installer (FluentFlyout_Installer.exe)|Ran silently end-to-end and verified via Get-AppxPackage ($($pkg2.PackageFullName))."
             } else {
               $exePass = $false
+              # Record this BEFORE clearing $pkg2, otherwise the report below would
+              # always say "False" no matter what was actually found.
+              $appFound = [bool]$pkg2
               $pkg2 = $null
-              $logTail = if (Test-Path $installerLog) { (Get-Content $installerLog -Tail 10) -join "; " } else { "(no log produced)" }
-              $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|Exit code $($proc.ExitCode). App found after run: $([bool]$pkg2). Last log lines: $logTail"
+              # The log ends with dozens of download-progress lines, so those are
+              # filtered out to keep the lines that actually explain a failure.
+              $logTail = if (Test-Path $installerLog) { (Get-Content $installerLog | Where-Object { $_ -notmatch "bytes done" } | Select-Object -Last 15) -join "; " } else { "(no log produced)" }
+              $results += "FAIL|Test 2 - Full installer (FluentFlyout_Installer.exe)|Exit code $($proc.ExitCode). App found after run: $appFound. Last log lines: $logTail"
             }
           } catch {
             $exePass = $false
@@ -575,40 +580,76 @@ jobs:
           }
 
           # Test 3 - re-running the installer while FluentFlyout is actively
-          # running, simulating a real upgrade. Add-AppxPackage cannot replace
-          # files locked by a running process, so this previously failed with
-          # HRESULT 0x80073D02 - a real failure a user hit on a genuine
-          # Chocolatey upgrade, never caught here because every prior test
-          # only ever installed onto a clean machine with nothing running.
+          # running. Add-AppxPackage cannot replace files locked by a running
+          # process, so this previously failed with HRESULT 0x80073D02 - a
+          # real failure a user hit on a genuine Chocolatey upgrade, never
+          # caught because every earlier test only installed onto a clean
+          # machine with nothing running.
+          #
+          # The app is launched the way the Start Menu does it
+          # (shell:AppsFolder\<PackageFamilyName>!<AppId>). Running an .exe
+          # straight out of C:\Program Files\WindowsApps\... is not allowed
+          # ("Access is denied"), and that folder also holds helper tools like
+          # createdump.exe, which an earlier version of this test wrongly
+          # picked up.
+          #
+          # What this verifies: the installer closes a running copy of the app
+          # and finishes successfully. Note the installer installs the latest
+          # STABLE release, so this reinstalls the same version rather than
+          # doing a true old-to-new upgrade; the "files in use" situation is
+          # the same either way.
+          #
+          # If the app cannot be started on this runner (no desktop session,
+          # for example) there is nothing to close, so the test is reported as
+          # SKIP, which does not count as a failure.
           # Only attempted if Test 2 actually got the app installed.
           if ($pkg2) {
             Write-Host "=== Test 3: Re-running installer over a running instance ==="
+            $appProc = $null
+            $launchNote = ""
             try {
-              $exePath = Get-ChildItem -Path $pkg2.InstallLocation -Filter "*.exe" -Recurse -ErrorAction Stop |
-                Where-Object { $_.Name -notmatch "SourceGenerators" } | Select-Object -First 1
-              if (-not $exePath) {
-                throw "Could not locate the installed .exe under $($pkg2.InstallLocation) to launch it."
+              try {
+                [xml]$manifest = Get-Content -Raw -LiteralPath (Join-Path $pkg2.InstallLocation "AppxManifest.xml")
+                $appId = @($manifest.Package.Applications.Application)[0].Id
+                Start-Process -FilePath "explorer.exe" -ArgumentList "shell:AppsFolder\$($pkg2.PackageFamilyName)!$appId" -ErrorAction Stop
+                for ($i = 0; $i -lt 15 -and -not $appProc; $i++) {
+                  Start-Sleep -Seconds 2
+                  $appProc = Get-Process -Name "*FluentFlyout*" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Path -like "*\WindowsApps\*" } | Select-Object -First 1
+                }
+              } catch {
+                $launchNote = " Launch error: $($_.Exception.Message)"
               }
-              $appProc = Start-Process -FilePath $exePath.FullName -PassThru -ErrorAction Stop
-              Start-Sleep -Seconds 5   # give it time to fully launch and lock its files
 
-              $proc2 = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
-                -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$env:TEMP\installer-test-upgrade.log" `
-                -Wait -PassThru -ErrorAction Stop
-              $pkg3 = Get-AppxPackage -Name "*FluentFlyout*"
-
-              if ($proc2.ExitCode -eq 0 -and $pkg3) {
-                $results += "PASS|Test 3 - Reinstall over a running instance|Installer closed the running process and completed successfully ($($pkg3.PackageFullName))."
+              if (-not $appProc) {
+                $results += "SKIP|Test 3 - Reinstall over a running instance|The app could not be started on this runner, so there was no running instance to close and the upgrade scenario was not exercised.$launchNote"
               } else {
-                $exePass = $false
-                $logTail = if (Test-Path "$env:TEMP\installer-test-upgrade.log") { (Get-Content "$env:TEMP\installer-test-upgrade.log" -Tail 10) -join "; " } else { "(no log produced)" }
-                $results += "FAIL|Test 3 - Reinstall over a running instance|Exit code $($proc2.ExitCode). App found after run: $([bool]$pkg3). Last log lines: $logTail"
+                Start-Sleep -Seconds 5   # give it time to fully start and lock its files
+
+                $proc2 = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
+                  -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$env:TEMP\installer-test-upgrade.log" `
+                  -Wait -PassThru -ErrorAction Stop
+                $pkg3 = Get-AppxPackage -Name "*FluentFlyout*"
+                $appProc.Refresh()
+                $appClosed = $appProc.HasExited
+
+                if ($proc2.ExitCode -eq 0 -and $pkg3 -and $appClosed) {
+                  $results += "PASS|Test 3 - Reinstall over a running instance|Installer closed the running app and completed successfully ($($pkg3.PackageFullName))."
+                } else {
+                  $exePass = $false
+                  $upgradeLog = "$env:TEMP\installer-test-upgrade.log"
+                  $logTail = if (Test-Path $upgradeLog) { (Get-Content $upgradeLog | Where-Object { $_ -notmatch "bytes done" } | Select-Object -Last 15) -join "; " } else { "(no log produced)" }
+                  $results += "FAIL|Test 3 - Reinstall over a running instance|Exit code $($proc2.ExitCode). App found after run: $([bool]$pkg3). Running app was closed: $appClosed. Last log lines: $logTail"
+                }
               }
             } catch {
               $exePass = $false
               $results += "FAIL|Test 3 - Reinstall over a running instance|$($_.Exception.Message)"
             } finally {
-              Get-Process -Name "*FluentFlyout*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+              # Only stop the real app (inside WindowsApps), never the installer.
+              Get-Process -Name "*FluentFlyout*" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -like "*\WindowsApps\*" } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
             }
           }
 
@@ -631,13 +672,20 @@ jobs:
           $body = "Smoke test results for $version`n$statusLine`n`n"
           foreach ($r in $results) {
             $parts = $r -split '\|', 3
-            $icon = if ($parts[0] -eq 'PASS') { "PASS" } else { "FAIL" }
+            $icon = $parts[0]
             $body += "[$icon] $($parts[1])`n$($parts[2])`n`n"
           }
           $body += "Note: ARM64 build not tested here (no ARM64 GitHub-hosted runner available) - Sandbox/manual testing still needed for that architecture.`n`n"
           $body += "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           Write-Host $body
+
+          if (-not $overallPass) {
+            Write-Host "::warning title=Smoke test did not fully pass::$statusLine"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ("### Smoke test results: $version`n`n" + '```' + "`n$body`n" + '```')
+          }
 
           if ($env:NTFY_TOPIC) {
             $headers = @{
