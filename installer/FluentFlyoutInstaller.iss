@@ -117,15 +117,45 @@ end;
 
 // Writes a PowerShell script to a temp file and runs it. ShowCmd controls
 // window visibility (SW_HIDE or SW_SHOW).
+//
+// IMPORTANT - why the full path to PowerShell: this installer is a 32-bit
+// program, and Windows quietly sends 32-bit programs that ask for
+// "powershell.exe" to the 32-bit copy of PowerShell (in SysWOW64). A
+// 32-bit PowerShell cannot read the file path of a 64-bit program like
+// FluentFlyout, so its .Path comes back empty. That made the "stop the
+// running app" step below silently match nothing, so an app that was
+// running stayed running during the install. {sysnative} points at the
+// real 64-bit System32 folder, so this always starts 64-bit PowerShell.
+// Windows 11 (which FluentFlyout needs) is always 64-bit, but the IsWin64
+// check keeps this safe anyway.
 procedure RunScript(const ScriptContent, ScriptName: String; ShowCmd: Integer);
 var
-	ScriptPath: String;
+	ScriptPath, PowerShellPath: String;
 	ResultCode: Integer;
 begin
 	ScriptPath := ExpandConstant('{tmp}\') + ScriptName;
 	SaveStringToFile(ScriptPath, ScriptContent, False);
-	Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+	if IsWin64 then
+		PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe')
+	else
+		PowerShellPath := 'powershell.exe';
+	Log('Running ' + ScriptName + ' with ' + PowerShellPath);
+	Exec(PowerShellPath, '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
 		'', ShowCmd, ewWaitUntilTerminated, ResultCode);
+	Log(ScriptName + ' finished with exit code ' + IntToStr(ResultCode));
+end;
+
+// Copies a text file written by one of the PowerShell scripts into Inno's
+// own log (the file you get with /LOG=...), one line at a time. This is
+// what lets the automated tests see what the scripts actually did.
+procedure CopyFileToSetupLog(const FilePath: String);
+var
+	Lines: TArrayOfString;
+	I: Integer;
+begin
+	if LoadStringsFromFile(FilePath, Lines) then
+		for I := 0 to GetArrayLength(Lines) - 1 do
+			Log('[install.ps1] ' + Lines[I]);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -135,7 +165,7 @@ var
 	CertUrl, MsixUrl, SumsUrl, SumsContent: String;
 	CertHash, MsixHash: String;
 	TrustScript, InstallScript: String;
-	AppIdPath, VersionPath, SumsPath: String;
+	AppIdPath, VersionPath, SumsPath, ScriptLogPath: String;
 begin
 	if CurStep = ssPostInstall then
 	begin
@@ -148,6 +178,7 @@ begin
 		TempDir := ExpandConstant('{tmp}');
 		AppIdPath := TempDir + '\appid.txt';
 		VersionPath := TempDir + '\latest-release.json';
+		ScriptLogPath := TempDir + '\install-script-log.txt';
 
 		// Step 3a: find the current version by asking GitHub directly for
 		// this repo's latest release. /releases/latest deliberately
@@ -254,18 +285,32 @@ begin
 		// (exit code -1, no log lines after the download). Installed MSIX
 		// apps always live under WindowsApps, and this installer never
 		// does, so the path check can only ever match the real app.
+		// (The path check only works in 64-bit PowerShell - see RunScript.)
+		//
+		// Each step writes a line to install-script-log.txt, which is then
+		// copied into the setup log, so a failure here is no longer silent.
 		InstallScript :=
-			'$ErrorActionPreference = ''Stop''' + #13#10 +
-			'try { Get-Process -Name ''*FluentFlyout*'' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''*\WindowsApps\*'' } | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }' + #13#10 +
+			'$log = ''' + ScriptLogPath + '''' + #13#10 +
+			'function Write-Log($msg) { Add-Content -LiteralPath $log -Value $msg }' + #13#10 +
+			'Write-Log (''PowerShell is 64-bit: '' + [Environment]::Is64BitProcess)' + #13#10 +
+			'$running = @(Get-Process -Name ''*FluentFlyout*'' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''*\WindowsApps\*'' })' + #13#10 +
+			'Write-Log (''Running app processes found: '' + $running.Count)' + #13#10 +
+			'foreach ($p in $running) {' + #13#10 +
+			'  try { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Write-Log (''Stopped '' + $p.ProcessName + '' (PID '' + $p.Id + '')'') }' + #13#10 +
+			'  catch { Write-Log (''Could not stop '' + $p.ProcessName + '': '' + $_.Exception.Message) }' + #13#10 +
+			'}' + #13#10 +
 			'Start-Sleep -Seconds 2' + #13#10 +
-			'Add-AppxPackage -Path ''' + TempDir + '\app.msix''' + #13#10 +
+			'try { Add-AppxPackage -Path ''' + TempDir + '\app.msix'' -ErrorAction Stop; Write-Log ''Add-AppxPackage succeeded'' }' + #13#10 +
+			'catch { Write-Log (''Add-AppxPackage FAILED: '' + $_.Exception.Message) }' + #13#10 +
 			'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
 			'if ($pkg) {' + #13#10 +
+			'  Write-Log (''Installed package: '' + $pkg.PackageFullName)' + #13#10 +
 			'  $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName' + #13#10 +
 			'  $appId = $manifest.Package.Applications.Application.Id' + #13#10 +
 			'  if ($appId) { Set-Content -Path ''' + AppIdPath + ''' -Value ($pkg.PackageFamilyName + ''!'' + $appId) -NoNewline }' + #13#10 +
-			'}';
+			'} else { Write-Log ''No FluentFlyout package found after install'' }';
 		RunScript(InstallScript, 'install.ps1', SW_SHOW);
+		CopyFileToSetupLog(ScriptLogPath);
 
 		if LoadStringFromFile(AppIdPath, AppIdAnsi) then
 			AppLaunchID := String(AppIdAnsi)
@@ -278,5 +323,6 @@ begin
 		DeleteFile(AppIdPath);
 		DeleteFile(VersionPath);
 		DeleteFile(SumsPath);
+		DeleteFile(ScriptLogPath);
 	end;
 end;
