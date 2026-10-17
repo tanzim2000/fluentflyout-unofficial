@@ -243,9 +243,20 @@ begin
 		// 0x80073D02 ("resources it modifies are currently in use"),
 		// since AppX cannot replace files still locked by the running
 		// process.
+		//
+		// IMPORTANT - which processes get stopped: only processes that
+		// run from inside the Windows app folder (...\WindowsApps\...).
+		// Filtering by name alone ('*FluentFlyout*') is NOT safe,
+		// because this installer's own processes are also named
+		// FluentFlyout_Installer (the .exe, plus the temporary copy
+		// Inno runs from, FluentFlyout_Installer.tmp). A name-only filter
+		// made the installer kill itself halfway through installing
+		// (exit code -1, no log lines after the download). Installed MSIX
+		// apps always live under WindowsApps, and this installer never
+		// does, so the path check can only ever match the real app.
 		InstallScript :=
 			'$ErrorActionPreference = ''Stop''' + #13#10 +
-			'Get-Process -Name ''*FluentFlyout*'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue' + #13#10 +
+			'try { Get-Process -Name ''*FluentFlyout*'' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''*\WindowsApps\*'' } | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }' + #13#10 +
 			'Start-Sleep -Seconds 2' + #13#10 +
 			'Add-AppxPackage -Path ''' + TempDir + '\app.msix''' + #13#10 +
 			'$pkg = Get-AppxPackage | Where-Object { $_.Name -like ''*FluentFlyout*'' } | Select-Object -First 1' + #13#10 +
