@@ -1,21 +1,23 @@
-# FluentFlyout Unofficial Builds
+<img alt="FluentFlyout Unofficial" width="100%" src="https://capsule-render.vercel.app/api?type=waving&amp;color=gradient&amp;height=140&amp;section=header&amp;text=FluentFlyout%20Unofficial&amp;fontSize=36">
+<!-- Subtitle: types out once, then stays still (repeat=false). To loop it, change repeat=false to repeat=true. -->
 
 > **Unofficial**, automated, community-maintained builds of [FluentFlyout](https://github.com/unchihugo/FluentFlyout) rebuilt directly from upstream source on every release and republished here and via Chocolatey.
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/FluentFlyout%20Unofficial%20Publication%20Script.yml?branch=main)](../../actions)
-[![Latest Release](https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial)](../../releases/latest)
-[![GitHub Downloads](https://img.shields.io/github/downloads/tanzim2000/fluentflyout-unofficial/total?label=GitHub%20downloads)](../../releases)
-[![Chocolatey Downloads](https://img.shields.io/chocolatey/dt/fluentflyout-unofficial?label=Chocolatey%20installs)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Chocolatey](https://img.shields.io/chocolatey/v/fluentflyout-unofficial)](https://community.chocolatey.org/packages/fluentflyout-unofficial)
+<!-- Badges: the height="22" number controls their size. Smaller number = smaller badges (20 is smaller, 26 is bigger). -->
+<a href="https://github.com/tanzim2000/fluentflyout-unofficial/actions"><img alt="Build Status" height="22" src="https://img.shields.io/github/actions/workflow/status/tanzim2000/fluentflyout-unofficial/FluentFlyout%20Unofficial%20Publication%20Script.yml?branch=main&amp;style=for-the-badge&amp;logo=githubactions&amp;logoColor=white&amp;label=Build"></a>
+<a href="https://github.com/tanzim2000/fluentflyout-unofficial/releases/latest"><img alt="Latest Release" height="22" src="https://img.shields.io/github/v/release/tanzim2000/fluentflyout-unofficial?style=for-the-badge&amp;logo=github&amp;logoColor=white&amp;label=Release"></a>
+<a href="https://community.chocolatey.org/packages/fluentflyout-unofficial"><img alt="Chocolatey version" height="22" src="https://img.shields.io/chocolatey/v/fluentflyout-unofficial?style=for-the-badge&amp;logo=chocolatey&amp;logoColor=white&amp;label=Chocolatey"></a>
+<a href="https://github.com/tanzim2000/fluentflyout-unofficial/blob/main/LICENSE"><img alt="License: GPL v3" height="22" src="https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge&amp;logo=gnu&amp;logoColor=white"></a>
+<a href="https://github.com/tanzim2000/fluentflyout-unofficial/releases"><img alt="GitHub Downloads" height="22" src="https://img.shields.io/github/downloads/tanzim2000/fluentflyout-unofficial/total?style=for-the-badge&amp;logo=github&amp;logoColor=white&amp;label=GitHub%20downloads"></a>
+<a href="https://community.chocolatey.org/packages/fluentflyout-unofficial"><img alt="Chocolatey Downloads" height="22" src="https://img.shields.io/chocolatey/dt/fluentflyout-unofficial?style=for-the-badge&amp;logo=chocolatey&amp;logoColor=white&amp;label=Chocolatey%20installs"></a>
 
 ---
 
 ## What this is
 
-FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11 — the core app (the media flyout, the Lock Keys flyout, the Up Next preview, full customization) is free everywhere, Store included. The Microsoft Store version additionally sells a small set of optional extras — the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon — for a small one-time price. The project's own GitHub page provides source code only, no compiled installer.
+FluentFlyout is a free, open-source Fluent 2–styled media flyout app for Windows 11. The core app (the media flyout, the Lock Keys flyout, the Up Next preview, full customization) is free everywhere, Store included. The Microsoft Store version additionally sells a small set of optional extras (the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon) for a small one-time price. The project's own GitHub page provides source code only, no compiled installer.
 
-This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source — with those optional extras unlocked too, at no cost — and keeps it install-ready here and on Chocolatey.
+This repo closes that gap: it automatically rebuilds FluentFlyout straight from that public source, with those optional extras unlocked too (at no cost), and keeps it install-ready here and on Chocolatey.
 
 ```mermaid
 flowchart LR
@@ -93,7 +95,7 @@ Full workflow source: [`.github/workflows/FluentFlyout Unofficial Publication Sc
 
 FluentFlyout itself uses a self-signed cert (real EV certs are expensive for indie/community projects). This repo does the same, but with **our own separate certificate**, meaning trusting this repo's builds is a distinct decision from trusting upstream's official builds. The cert's public fingerprint is published in every release's `SHA256SUMS.txt` so you can verify it hasn't changed unexpectedly between versions.
 
-**Trust scope:** every install method above (the one-click installer, Chocolatey, and the manual steps) adds this certificate to the **Local Machine** Trusted People store — meaning it's trusted machine-wide, for every account on the PC, not just the one running the install. That's standard for installing any self-signed app system-wide, but worth knowing plainly before you proceed.
+**Trust scope:** every install method above (the one-click installer, Chocolatey, and the manual steps) adds this certificate to the **Local Machine** Trusted People store, meaning it's trusted machine-wide, for every account on the PC, not just the one running the install. That's standard for installing any self-signed app system-wide, but worth knowing plainly before you proceed.
 
 ---
 
@@ -115,31 +117,38 @@ FluentFlyout is licensed under the **GNU General Public License v3.0**. This pro
 
 ## FAQ
 
-**Is this safe?**
+### Is this safe?
+
 Nothing here is installed silently or without your say-so, you still have to manually choose to trust it, the same way you would with any app that isn't from the Microsoft Store. Here's what that trust actually rests on:
 - Every build is made by a robot (GitHub Actions), not a person typing commands by hand so, there's no manual step where someone could sneak in extra code before it reaches you.
 - That robot builds directly from the exact same public source code as the original FluentFlyout project, nothing is removed, or changed.
 - Every release shows exactly which version of the original source it was built from, so anyone can check that the build matches what the original developer actually published.
 - That said, you are trusting *this project's maintainer* to keep it that way. If you'd rather not trust anyone but the original developer, the Microsoft Store version remains the safest option, since Microsoft itself reviews and signs it.
 
-**Does the app's "check for updates" button work on this build?**
+### Does the app's "check for updates" button work on this build?
+
 Yes, and it points here. Upstream's build checks `fluentflyout.com` for new versions; this build patches that to check **this repository's** releases instead, so the version it compares against and the page it sends you to are both the build you actually installed. Two side effects worth stating plainly: the update check contacts GitHub's API rather than a third-party server, and it will never point you at a prerelease (those are builds whose installer failed automated testing).
 
 To be clear about what this does *not* cover: upstream's app contains other network features of its own (such as anonymous usage telemetry and remote feature experiments) which this project has not modified. If you want a build with no outbound network calls at all, that's a larger change than this project currently makes, and you're better off compiling from source with those features disabled yourself.
 
-**How do I verify the build matches the source?**
-Every release includes `FluentFlyout_<version>_patched-source.zip` — the exact upstream source, with this project's patches already applied, that the binaries in that same release were compiled from. GitHub's own auto-generated "Source code" archives only contain this repository's automation scripts, not the app code, so this archive is what actually lets you audit or rebuild what you installed. It's also how this project meets GPLv3's requirement to offer the corresponding source alongside a redistributed binary.
+### How do I verify the build matches the source?
 
-**Why not just use the Microsoft Store version?**
+Every release includes `FluentFlyout_<version>_patched-source.zip`: the exact upstream source, with this project's patches already applied, that the binaries in that same release were compiled from. GitHub's own auto-generated "Source code" archives only contain this repository's automation scripts, not the app code, so this archive is what actually lets you audit or rebuild what you installed. It's also how this project meets GPLv3's requirement to offer the corresponding source alongside a redistributed binary.
+
+### Why not just use the Microsoft Store version?
+
 You absolutely can, and it directly supports the original developer, which is worth doing if you're able to. This project exists for people who can't pay for the Store's optional extras, GPLv3 guarantees the same functionality is available to build for free from source, but doing that yourself takes technical knowledge most people don't have or want to deal with. This repo automates that free path instead: one install command, and updates happen on their own.
 
-**Will this break if upstream changes their build process?**
+### Will this break if upstream changes their build process?
+
 Possibly... if the original project restructures its code significantly, the automated build here may need updates too. If a release ever fails to appear, it usually means the automation notified the maintainer(s). Issues/PRs welcome if you notice a gap.
 
-**Does this unlock the paid Store features? Does that hurt the original developer?**
-The core app is free everywhere already, including the Store — this project isn't unlocking that. What this build *does* unlock, at no cost, is the small set of extras the Store sells for a one-time price: the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means the original author can't legally lock any feature behind payment in the source itself — that purchase is effectively an optional, forced-feeling way of asking for a donation for those specific extras. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think people should have to pay for it, especially given how differently a flat price lands depending on where in the world you live. Building from source yourself would get you the exact same result; this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support the original author's work, please consider doing so.
+### Does this unlock the paid Store features? Does that hurt the original developer?
 
-**Why does the app still show "PREMIUM" badges and Store-related text if everything's unlocked?**
+The core app is free everywhere already, including the Store. This project isn't unlocking that. What this build *does* unlock, at no cost, is the small set of extras the Store sells for a one-time price: the Taskbar Widget, the Taskbar Visualizer, adjustable Acrylic blur intensity, and hiding the tray icon. FluentFlyout's Store paywall is a purchase check against Microsoft's servers, not something baked into the app's actual code, and GPLv3 means the original author can't legally lock any feature behind payment in the source itself. That purchase is effectively an optional, forced-feeling way of asking for a donation for those specific extras. This project doesn't think that's an unreasonable thing to want to support if you can, but it also doesn't think people should have to pay for it, especially given how differently a flat price lands depending on where in the world you live. Building from source yourself would get you the exact same result; this project just saves you that step. If FluentFlyout is useful to you and you're in a position to support the original author's work, please consider doing so.
+
+### Why does the app still show "PREMIUM" badges and Store-related text if everything's unlocked?
+
 Because this project deliberately doesn't touch the app's UI or code at all beyond the minimal identity/credit changes described above, it compiles unchihugo's source exactly as published. Those "PREMIUM" labels, and the onboarding screen's Store-related wording, are part of that same shared codebase the Store version uses, not something this project added or controls. They're leftover cosmetic labels, not a functional gate, every feature behind them works normally once toggled on. We've deliberately left them as-is rather than patching them out, because doing so would mean maintaining a second, ongoing fork of the UI that has to be kept in sync with upstream forever, instead of the current process, which stays simple by changing as little as possible. If this ever becomes genuinely confusing in practice, it's open to reconsideration, see [Contributing](#contributing).
 
 ---
@@ -157,12 +166,12 @@ Issues and PRs welcome, especially for:
 
 ## Acknowledgments
 
-This repository's automation pipeline (workflow design, debugging, and documentation) was built with the assistance of [Claude](https://claude.com), Anthropic's AI assistant. All actual code execution, testing, and decisions were reviewed and approved by the repo maintainer — Claude doesn't have direct access to this repository or its infrastructure.
+This repository's automation pipeline (workflow design, debugging, and documentation) was built with the assistance of [Claude](https://claude.com), Anthropic's AI assistant. All actual code execution, testing, and decisions were reviewed and approved by the repo maintainer. Claude doesn't have direct access to this repository or its infrastructure.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE) for the full text. Same license as upstream FluentFlyout, as required by GPLv3 §5(b)–(c).
+This project is licensed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for the full text. Same license as upstream FluentFlyout, as required by GPLv3 §5(b)–(c).
 
 FluentFlyout is © its original author and contributors. This repository redistributes modified/rebuilt versions under the same license terms.
