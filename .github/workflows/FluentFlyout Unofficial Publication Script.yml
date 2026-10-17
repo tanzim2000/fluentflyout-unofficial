@@ -11,7 +11,7 @@
 #                                                     │                  │
 #                                                     └──> smoke-test <──┘
 #                                                              │
-#                                     publish ──> publish-chocolatey ──> publish-report
+#                                                           publish ──> publish-chocolatey ──> publish-report
 #
 # FAILURE BEHAVIOUR
 #   - Any stage before smoke-test fails    -> nothing published; retried next cron run.
@@ -523,6 +523,44 @@ jobs:
           $msixPass = $true
           $exePass = $true
 
+          # Live progress. The report at the very end is only printed once
+          # everything has finished, so while the tests run this prints a
+          # timestamped line for each stage and a "still running" heartbeat.
+          function Write-Progress-Line($msg) {
+            Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg)
+          }
+
+          # Runs the installer .exe and, while it works, prints its own log
+          # lines as they appear (download-progress noise filtered out), plus
+          # a heartbeat every 15 s so a quiet stretch never looks like a hang.
+          # Returns the finished process, so callers read .ExitCode as before.
+          function Invoke-InstallerWithProgress($logPath, $label) {
+            $proc = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
+              -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$logPath" `
+              -PassThru -ErrorAction Stop
+            $shown = 0
+            $sinceBeat = 0
+            while (-not $proc.HasExited) {
+              Start-Sleep -Seconds 2
+              $sinceBeat += 2
+              if (Test-Path $logPath) {
+                $lines = @(Get-Content -LiteralPath $logPath -ErrorAction SilentlyContinue)
+                if ($lines.Count -gt $shown) {
+                  $lines[$shown..($lines.Count - 1)] | Where-Object { $_ -notmatch "bytes done|basic authentication" } |
+                    ForEach-Object { Write-Host "    installer> $_" }
+                  $shown = $lines.Count
+                  $sinceBeat = 0
+                }
+              }
+              if ($sinceBeat -ge 15) {
+                Write-Progress-Line "$label still running..."
+                $sinceBeat = 0
+              }
+            }
+            $proc.WaitForExit()
+            return $proc
+          }
+
           # Test 1 - direct .msix install.
           #
           # x64 only: GitHub-hosted Windows runners are x64, so the ARM64 package
@@ -531,18 +569,23 @@ jobs:
           # The certificate is imported into TrustedPeople rather than Root: the
           # signing certificate is a self-signed leaf, not a CA, and the AppX
           # validator only honours leaf certificates from TrustedPeople.
-          Write-Host "=== Test 1: Direct MSIX install (x64) ==="
+          Write-Host "=== Test 1/3: Direct MSIX install (x64) ==="
           $msixPath = "output\FluentFlyout_${version}_x64.msix"
           $certPath = "output\signing.cer"
           try {
+            Write-Progress-Line "Trusting the signing certificate..."
             Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+            Write-Progress-Line "Installing the .msix with Add-AppxPackage (usually 10-60 s)..."
             Add-AppxPackage -Path $msixPath -ErrorAction Stop
+            Write-Progress-Line "Install finished, verifying..."
             $pkg = Get-AppxPackage -Name "*FluentFlyout*"
             if ($pkg) {
+              Write-Progress-Line "Test 1 PASSED"
               $results += "PASS|Test 1 - Direct MSIX install (x64)|Installed and verified via Get-AppxPackage ($($pkg.PackageFullName))."
               Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue
             } else {
               $msixPass = $false
+              Write-Progress-Line "Test 1 FAILED"
               $results += "FAIL|Test 1 - Direct MSIX install (x64)|Add-AppxPackage completed but Get-AppxPackage found no match afterward."
             }
           } catch {
@@ -553,17 +596,19 @@ jobs:
           # Test 2 - the installer .exe, end to end. This exercises the full
           # real-world path: version lookup, download, checksum verification,
           # certificate trust, install, and launch-target resolution.
-          Write-Host "=== Test 2: FluentFlyoutInstaller.exe (silent) ==="
+          Write-Host "=== Test 2/3: FluentFlyoutInstaller.exe (silent) ==="
+          Write-Progress-Line "Running the installer: it looks up the latest release, downloads it, trusts the certificate and installs (usually 1-3 min)..."
           $installerLog = "$env:TEMP\installer-test.log"
           try {
-            $proc = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
-              -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$installerLog" `
-              -Wait -PassThru -ErrorAction Stop
+            $proc = Invoke-InstallerWithProgress $installerLog "Test 2 installer"
+            Write-Progress-Line "Installer finished with exit code $($proc.ExitCode)"
             $pkg2 = Get-AppxPackage -Name "*FluentFlyout*"
             if ($proc.ExitCode -eq 0 -and $pkg2) {
+              Write-Progress-Line "Test 2 PASSED"
               $results += "PASS|Test 2 - Full installer (FluentFlyout_Installer.exe)|Ran silently end-to-end and verified via Get-AppxPackage ($($pkg2.PackageFullName))."
             } else {
               $exePass = $false
+              Write-Progress-Line "Test 2 FAILED"
               # Record this BEFORE clearing $pkg2, otherwise the report below would
               # always say "False" no matter what was actually found.
               $appFound = [bool]$pkg2
@@ -604,7 +649,8 @@ jobs:
           # SKIP, which does not count as a failure.
           # Only attempted if Test 2 actually got the app installed.
           if ($pkg2) {
-            Write-Host "=== Test 3: Re-running installer over a running instance ==="
+            Write-Host "=== Test 3/3: Re-running installer over a running instance ==="
+            Write-Progress-Line "Starting the app so there is a running instance to close..."
             $appProc = $null
             $launchNote = ""
             try {
@@ -622,21 +668,24 @@ jobs:
               }
 
               if (-not $appProc) {
+                Write-Progress-Line "Test 3 SKIPPED (app could not be started)"
                 $results += "SKIP|Test 3 - Reinstall over a running instance|The app could not be started on this runner, so there was no running instance to close and the upgrade scenario was not exercised.$launchNote"
               } else {
+                Write-Progress-Line "App is running (PID $($appProc.Id)). Waiting 5 s, then running the installer over it..."
                 Start-Sleep -Seconds 5   # give it time to fully start and lock its files
 
-                $proc2 = Start-Process -FilePath "output\FluentFlyout_Installer.exe" `
-                  -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/LOG=$env:TEMP\installer-test-upgrade.log" `
-                  -Wait -PassThru -ErrorAction Stop
+                $proc2 = Invoke-InstallerWithProgress "$env:TEMP\installer-test-upgrade.log" "Test 3 installer"
+                Write-Progress-Line "Installer finished with exit code $($proc2.ExitCode)"
                 $pkg3 = Get-AppxPackage -Name "*FluentFlyout*"
                 $appProc.Refresh()
                 $appClosed = $appProc.HasExited
 
                 if ($proc2.ExitCode -eq 0 -and $pkg3 -and $appClosed) {
+                  Write-Progress-Line "Test 3 PASSED"
                   $results += "PASS|Test 3 - Reinstall over a running instance|Installer closed the running app and completed successfully ($($pkg3.PackageFullName))."
                 } else {
                   $exePass = $false
+                  Write-Progress-Line "Test 3 FAILED"
                   $upgradeLog = "$env:TEMP\installer-test-upgrade.log"
                   $logTail = if (Test-Path $upgradeLog) { (Get-Content $upgradeLog | Where-Object { $_ -notmatch "bytes done" } | Select-Object -Last 15) -join "; " } else { "(no log produced)" }
                   $results += "FAIL|Test 3 - Reinstall over a running instance|Exit code $($proc2.ExitCode). App found after run: $([bool]$pkg3). Running app was closed: $appClosed. Last log lines: $logTail"
@@ -653,6 +702,7 @@ jobs:
             }
           }
 
+          Write-Progress-Line "All tests done. Cleaning up and building the report..."
           Get-AppxPackage -Name "*FluentFlyout*" -ErrorAction SilentlyContinue |
             Remove-AppxPackage -ErrorAction SilentlyContinue
 
